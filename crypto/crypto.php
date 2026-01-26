@@ -45,48 +45,4 @@ echo "<!DOCTYPE html>
     <div class='log'>{$contents}</div>
 </body>
 </html>";
-?><?php
-// Path to your log file
-$log_file = '/home/ryanbayles/Desktop/Crypto/log.txt';
-
-// Check if the file exists
-if (!file_exists($log_file)) {
-    echo "<h2>No log file found!</h2>";
-    exit;
-}
-
-// Read the file contents
-$log_contents = file_get_contents($log_file);
-
-// Escape HTML to prevent breaking the page
-$log_contents = htmlspecialchars($log_contents);
-
-// Optional: break lines
-$log_contents = nl2br($log_contents);
 ?>
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Crypto Arbitrage Log</title>
-    <style>
-        body {
-            font-family: monospace;
-            background-color: #f0f0f0;
-            padding: 20px;
-        }
-        pre {
-            background-color: #222;
-            color: #0f0;
-            padding: 15px;
-            border-radius: 5px;
-            overflow-x: auto;
-        }
-    </style>
-</head>
-<body>
-    <h1>Crypto Arbitrage Log</h1>
-    <pre><?php echo $log_contents; ?></pre>
-</body>
-</html>

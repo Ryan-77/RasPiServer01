@@ -1,2 +1,201 @@
 /home/ryanbayles/Desktop/Crypto/crypto.py:649: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
   now = datetime.utcnow()
+Fetching latest exchange rates from CoinGecko...
+Nodes in graph: ['bch', 'btc', 'eth', 'link', 'ltc', 'sol', 'xrp']
+Edges with weights:
+  bch -> bch weight=1.0
+  bch -> btc weight=0.00659625
+  bch -> eth weight=0.20199737
+  bch -> link weight=49.202984
+  bch -> ltc weight=8.532686
+  bch -> sol weight=4.720279
+  bch -> xrp weight=308.131
+  btc -> bch weight=151.684
+  btc -> btc weight=1.0
+  btc -> eth weight=30.62358
+  btc -> link weight=7459.0
+  btc -> ltc weight=1294.0
+  btc -> sol weight=715.612
+  btc -> xrp weight=46714.0
+  eth -> bch weight=4.953216
+  eth -> btc weight=0.03265514
+  eth -> eth weight=1.0
+  eth -> link weight=243.534
+  eth -> ltc weight=42.234508
+  eth -> sol weight=23.378687
+  eth -> xrp weight=1525.0
+  link -> bch weight=0.02033414
+  link -> btc weight=0.00013406
+  link -> eth weight=0.00410527
+  link -> link weight=1.0
+  link -> ltc weight=0.17341302
+  link -> sol weight=0.09593202
+  link -> xrp weight=6.262256
+  ltc -> bch weight=0.11725833
+  ltc -> btc weight=0.00077306
+  ltc -> eth weight=0.02367334
+  ltc -> link weight=5.766408
+  ltc -> ltc weight=1.0
+  ltc -> sol weight=0.55319921
+  ltc -> xrp weight=36.111771
+  sol -> bch weight=0.21197066
+  sol -> btc weight=0.00139747
+  sol -> eth weight=0.04279486
+  sol -> link weight=10.424072
+  sol -> ltc weight=1.807722
+  sol -> sol weight=1.000031
+  sol -> xrp weight=65.28
+  xrp -> bch weight=0.00324717
+  xrp -> btc weight=2.141e-05
+  xrp -> eth weight=0.00065557
+  xrp -> link weight=0.15968607
+  xrp -> ltc weight=0.02769245
+  xrp -> sol weight=0.01531945
+  xrp -> xrp weight=1.0
+Saved pair snapshot to /home/ryanbayles/Desktop/Crypto/data/currency_pair_2026.01.25:21.20.txt
+
+Enumerating paths and computing arbitrage factors...
+
+
+Summary
+Smallest path weight factor: 0.9994120982765721
+Paths: ['ltc', 'btc', 'link', 'eth', 'xrp', 'sol'] ['sol', 'btc', 'link', 'eth', 'xrp', 'ltc']
+
+Greatest path weight factor: 1.0028181165340617
+Paths: ['xrp', 'btc', 'ltc', 'bch', 'eth', 'sol', 'link'] ['link', 'btc', 'ltc', 'eth', 'sol', 'bch', 'xrp']
+
+Profitable arbitrage detected factor=1.0028181165340617 above threshold=1.0001
+Forward path: ['xrp', 'btc', 'ltc', 'bch', 'eth', 'sol', 'link']
+Reverse path: ['link', 'btc', 'ltc', 'eth', 'sol', 'bch', 'xrp']
+Starting quantity: 8.02139037433155 ripple, 15.000000000000002 USD
+Expected ending quantity after cycle: 8.04399559, 15.042271748010927 USD
+Expected net profit: 0.02260521 ripple, (0.04227174801092675 USD)
+
+Executing full arbitrage cycle with starting quantity: 8.02139037433155
+
+Forward path trades:
+  xrp -> btc SELL: qty 8.02139037 * rate 0.00002141 => 0.00017174 USD (Alpaca sell worked)
+  xrp -> btc BUY: qty 0.00017174 => 0.00017174 BTC (Alpaca buy worked)
+  btc -> ltc SELL: qty 0.00017174 * rate 1294.00000000 => 0.22222893 USD (Alpaca sell worked)
+  btc -> ltc BUY: qty 0.22222893 => 0.22222893 LTC (Alpaca buy worked)
+  ltc -> bch SELL: qty 0.22222893 * rate 0.11725833 => 0.02605819 USD (Alpaca sell worked)
+  ltc -> bch BUY: qty 0.02605819 => 0.02605819 BCH (Alpaca buy worked)
+  bch -> eth SELL: qty 0.02605819 * rate 0.20199737 => 0.00526369 USD (Alpaca sell worked)
+  bch -> eth BUY: qty 0.00526369 => 0.00526369 ETH (Alpaca buy worked)
+  eth -> sol SELL: qty 0.00526369 * rate 23.37868700 => 0.12305808 USD (Alpaca sell worked)
+  eth -> sol BUY: qty 0.12305808 => 0.12305808 SOL (Alpaca buy worked)
+  sol -> link SELL: qty 0.12305808 * rate 10.42407200 => 1.28276628 USD (Alpaca sell worked)
+  sol -> link BUY: qty 1.28276628 => 1.28276628 LINK (Alpaca buy worked)
+
+Reverse path trades:
+  link -> btc SELL: qty 1.28276628 * rate 0.00013406 => 0.00017197 USD (Alpaca sell worked)
+  link -> btc BUY: qty 0.00017197 => 0.00017197 BTC (Alpaca buy worked)
+  btc -> ltc SELL: qty 0.00017197 * rate 1294.00000000 => 0.22252614 USD (Alpaca sell worked)
+  btc -> ltc BUY: qty 0.22252614 => 0.22252614 LTC (Alpaca buy worked)
+  ltc -> eth SELL: qty 0.22252614 * rate 0.02367334 => 0.00526794 USD (Alpaca sell worked)
+  ltc -> eth BUY: qty 0.00526794 => 0.00526794 ETH (Alpaca buy worked)
+  eth -> sol SELL: qty 0.00526794 * rate 23.37868700 => 0.12315745 USD (Alpaca sell worked)
+  eth -> sol BUY: qty 0.12315745 => 0.12315745 SOL (Alpaca buy worked)
+  sol -> bch SELL: qty 0.12315745 * rate 0.21197066 => 0.02610577 USD (Alpaca sell worked)
+  sol -> bch BUY: qty 0.02610577 => 0.02610577 BCH (Alpaca buy worked)
+  bch -> xrp SELL: qty 0.02610577 * rate 308.13100000 => 8.04399559 USD (Alpaca sell worked)
+  bch -> xrp BUY: qty 8.04399559 => 8.04399559 XRP (Alpaca buy worked)
+
+Arbitrage cycle completed. Starting qty: 8.02139037, Ending qty: 8.04399559, Net profit: 0.02260521
+Results appended to /home/ryanbayles/Desktop/Crypto/results.json
+Fetching latest exchange rates from CoinGecko...
+Nodes in graph: ['bch', 'btc', 'eth', 'link', 'ltc', 'sol', 'xrp']
+Edges with weights:
+  bch -> bch weight=1.0
+  bch -> btc weight=0.00659793
+  bch -> eth weight=0.20202017
+  bch -> link weight=49.209827
+  bch -> ltc weight=8.534402
+  bch -> sol weight=4.71959
+  bch -> xrp weight=308.086
+  btc -> bch weight=151.59
+  btc -> btc weight=1.0
+  btc -> eth weight=30.602704
+  btc -> link weight=7461.0
+  btc -> ltc weight=1294.0
+  btc -> sol weight=715.486
+  btc -> xrp weight=46708.0
+  eth -> bch weight=4.952745
+  eth -> btc weight=0.03268284
+  eth -> eth weight=1.0
+  eth -> link weight=243.761
+  eth -> ltc weight=42.275135
+  eth -> sol weight=23.378473
+  eth -> xrp weight=1526.0
+  link -> bch weight=0.02031376
+  link -> btc weight=0.00013405
+  link -> eth weight=0.00410441
+  link -> link weight=1.0
+  link -> ltc weight=0.17339209
+  link -> sol weight=0.09588715
+  link -> xrp weight=6.259343
+  ltc -> bch weight=0.11713544
+  ltc -> btc weight=0.00077297
+  ltc -> eth weight=0.02366731
+  ltc -> link weight=5.765089
+  ltc -> ltc weight=1.0
+  ltc -> sol weight=0.55291512
+  ltc -> xrp weight=36.093321
+  sol -> bch weight=0.21183833
+  sol -> btc weight=0.00139791
+  sol -> eth weight=0.04280211
+  sol -> link weight=10.426109
+  sol -> ltc weight=1.808188
+  sol -> sol weight=0.99994171
+  sol -> xrp weight=65.274
+  xrp -> bch weight=0.00324495
+  xrp -> btc weight=2.141e-05
+  xrp -> eth weight=0.00065508
+  xrp -> link weight=0.15971739
+  xrp -> ltc weight=0.02769837
+  xrp -> sol weight=0.01531574
+  xrp -> xrp weight=1.0
+Saved pair snapshot to data/currency_pair_2026.01.26:04.21.txt
+
+Enumerating paths and computing arbitrage factors...
+
+
+Summary
+Smallest path weight factor: 0.9986338890771544
+Paths: ['eth', 'xrp', 'bch', 'link', 'ltc'] ['ltc', 'link', 'bch', 'xrp', 'eth']
+
+Greatest path weight factor: 1.0018185533487218
+Paths: ['ltc', 'eth', 'btc', 'sol'] ['sol', 'eth', 'btc', 'ltc']
+
+Profitable arbitrage detected factor=1.0018185533487218 above threshold=1.0001
+Forward path: ['ltc', 'eth', 'btc', 'sol']
+Reverse path: ['sol', 'eth', 'btc', 'ltc']
+Starting quantity: 1.0
+Expected ending quantity after cycle: 1.00181855
+Expected net profit: 0.00181855
+
+Executing full arbitrage cycle with starting quantity: 1.0
+
+Forward path trades:
+  ltc -> eth: qty 1.00000000 * rate 0.02366731
+    Alpaca sell response: {'id': 'b0f6c494-11c8-44f6-a278-4a605dbe619d', 'client_order_id': 'd4fa7355-01ae-4b58-939f-f89c68dd078b', 'created_at': '2026-01-26T04:21:06.936543568Z', 'updated_at': '2026-01-26T04:21:06.937929328Z', 'submitted_at': '2026-01-26T04:21:06.936543568Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': '19c466e7-e8f7-43e0-a8c5-f17ec9f5de8d', 'symbol': 'LTC/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '1', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'sell', 'position_intent': 'sell_to_close', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+    Alpaca buy response: {'id': '1df3a16e-8001-4903-824d-8eeb4b64a090', 'client_order_id': '88f224fe-5caf-4cd0-abdb-2eb46c3ca97e', 'created_at': '2026-01-26T04:21:07.154287855Z', 'updated_at': '2026-01-26T04:21:07.155521315Z', 'submitted_at': '2026-01-26T04:21:07.154287855Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': 'a1733398-6acc-4e92-af24-0d0667f78713', 'symbol': 'ETH/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '0.02366731', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'buy', 'position_intent': 'buy_to_open', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+  eth -> btc: qty 0.02366731 * rate 0.03268284
+    Alpaca sell response: {'id': '9c15bfb6-fecc-4976-aea3-850e87f8f522', 'client_order_id': 'f628a0bf-9fcb-4ca6-b634-0147ba5c1237', 'created_at': '2026-01-26T04:21:07.369469572Z', 'updated_at': '2026-01-26T04:21:07.370963652Z', 'submitted_at': '2026-01-26T04:21:07.369469572Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': 'a1733398-6acc-4e92-af24-0d0667f78713', 'symbol': 'ETH/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '0.02366731', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'sell', 'position_intent': 'sell_to_close', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+    Alpaca buy response: {'id': 'ef8f1e2d-9b08-400e-bcb3-b33a8a93c982', 'client_order_id': 'f03eebd3-245b-4569-8475-d6a5d2865b28', 'created_at': '2026-01-26T04:21:07.599125209Z', 'updated_at': '2026-01-26T04:21:07.600517819Z', 'submitted_at': '2026-01-26T04:21:07.599125209Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': '276e2673-764b-4ab6-a611-caf665ca6340', 'symbol': 'BTC/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '0.000773514', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'buy', 'position_intent': 'buy_to_open', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+  btc -> sol: qty 0.00077351 * rate 715.48600000
+    Alpaca sell response: {'id': '9bc55a9a-328f-49be-8dc9-572b228669f7', 'client_order_id': '279649c6-3d97-48c5-8a88-2b303a8587f0', 'created_at': '2026-01-26T04:21:07.823535956Z', 'updated_at': '2026-01-26T04:21:07.824903326Z', 'submitted_at': '2026-01-26T04:21:07.823535956Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': '276e2673-764b-4ab6-a611-caf665ca6340', 'symbol': 'BTC/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '0.000773514', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'sell', 'position_intent': 'sell_to_close', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+    Alpaca buy response: {'id': '630be8cd-e3a5-4fcd-b5e4-e7ff127d4de1', 'client_order_id': '24d25fce-fda4-45aa-ad6b-c9f560440f90', 'created_at': '2026-01-26T04:21:08.042472603Z', 'updated_at': '2026-01-26T04:21:08.043817683Z', 'submitted_at': '2026-01-26T04:21:08.042472603Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': '9226ef75-ba41-4a4b-a1b4-96e1a1b818f0', 'symbol': 'SOL/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '0.553439086', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'buy', 'position_intent': 'buy_to_open', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+
+Reverse path trades:
+  sol -> eth: qty 0.55343909 * rate 0.04280211
+    Alpaca sell response: {'id': '7730786a-a4a9-4f59-83d8-9d2d67886ff1', 'client_order_id': '00fb36ea-3e13-44c3-8549-e71e14c6c5d2', 'created_at': '2026-01-26T04:21:08.26985937Z', 'updated_at': '2026-01-26T04:21:08.27126572Z', 'submitted_at': '2026-01-26T04:21:08.26985937Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': '9226ef75-ba41-4a4b-a1b4-96e1a1b818f0', 'symbol': 'SOL/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '0.553439086', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'sell', 'position_intent': 'sell_to_close', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+    Alpaca buy response: {'id': '89a00f1c-f4d1-4a89-8675-94629d532f9c', 'client_order_id': 'cc011381-d340-4d05-8b73-a706ad6bf461', 'created_at': '2026-01-26T04:21:08.497324827Z', 'updated_at': '2026-01-26T04:21:08.498716757Z', 'submitted_at': '2026-01-26T04:21:08.497324827Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': 'a1733398-6acc-4e92-af24-0d0667f78713', 'symbol': 'ETH/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '0.02368836', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'buy', 'position_intent': 'buy_to_open', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+  eth -> btc: qty 0.02368836 * rate 0.03268284
+    Alpaca sell response: {'id': 'd8ec2f40-dc26-40a6-b901-4a6e84bf301f', 'client_order_id': '799a1cd9-2c68-4e1f-8e66-652cf5b8a3a3', 'created_at': '2026-01-26T04:21:08.744137934Z', 'updated_at': '2026-01-26T04:21:08.749063133Z', 'submitted_at': '2026-01-26T04:21:08.744137934Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': 'a1733398-6acc-4e92-af24-0d0667f78713', 'symbol': 'ETH/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '0.02368836', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'sell', 'position_intent': 'sell_to_close', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+    Alpaca buy response: {'id': 'b83a7ffe-5c36-4137-b7aa-6a89a764a673', 'client_order_id': '33882eaa-b37f-42f4-b7fd-c77ecb8de35c', 'created_at': '2026-01-26T04:21:08.967990971Z', 'updated_at': '2026-01-26T04:21:08.969300481Z', 'submitted_at': '2026-01-26T04:21:08.967990971Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': '276e2673-764b-4ab6-a611-caf665ca6340', 'symbol': 'BTC/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '0.000774202', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'buy', 'position_intent': 'buy_to_open', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+  btc -> ltc: qty 0.00077420 * rate 1294.00000000
+    Alpaca sell response: {'id': 'c0800f80-1b94-4de6-a588-b524316f7a31', 'client_order_id': '868e4d78-7a99-4e42-ad4c-390d7a9306b4', 'created_at': '2026-01-26T04:21:09.198721807Z', 'updated_at': '2026-01-26T04:21:09.200111687Z', 'submitted_at': '2026-01-26T04:21:09.198721807Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': '276e2673-764b-4ab6-a611-caf665ca6340', 'symbol': 'BTC/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '0.000774202', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'sell', 'position_intent': 'sell_to_close', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+    Alpaca buy response: {'id': '6edc5c03-d0fe-451a-b621-474faf9666ce', 'client_order_id': '57dea923-ce99-4c40-9acb-0fccfdf60047', 'created_at': '2026-01-26T04:21:09.423734064Z', 'updated_at': '2026-01-26T04:21:09.425222564Z', 'submitted_at': '2026-01-26T04:21:09.423734064Z', 'filled_at': None, 'expired_at': None, 'canceled_at': None, 'failed_at': None, 'replaced_at': None, 'replaced_by': None, 'replaces': None, 'asset_id': '19c466e7-e8f7-43e0-a8c5-f17ec9f5de8d', 'symbol': 'LTC/USD', 'asset_class': 'crypto', 'notional': None, 'qty': '1.001818553', 'filled_qty': '0', 'filled_avg_price': None, 'order_class': '', 'order_type': 'market', 'type': 'market', 'side': 'buy', 'position_intent': 'buy_to_open', 'time_in_force': 'gtc', 'limit_price': None, 'stop_price': None, 'status': 'pending_new', 'extended_hours': False, 'legs': None, 'trail_percent': None, 'trail_price': None, 'hwm': None, 'subtag': None, 'source': None, 'expires_at': '2026-04-23T20:00:00Z'}
+
+Arbitrage cycle completed. Starting qty: 1.00000000, Ending qty: 1.00181855, Net profit: 0.00181855
