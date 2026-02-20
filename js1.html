@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Sample JavaScript IO Page</title>
+
+<script>
+function add() {
+    let a = document.getElementById("fn").value;
+    let b = document.getElementById("sn").value;
+    let c = Number(a) + Number(b);
+    document.getElementById("ans").innerHTML = c;
+}
+
+</script>
+
+</head>
+<body>
+<h3>This is a sample JavaScript and HTML document.</h3>
+
+<p>First number? <input id="fn"> <br>
+Second number? <input id="sn"> <br>
+<button onclick="add()"> + </button>
+
+</p>
+<p>
+Your Answer is <span id="ans">________</span></p>
+
+</body>
+</html>

@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Simple JavaScript Calculator</title>
+
+<style>
+    input, button {
+        padding: 8px;
+        margin: 3px;
+        font-size: 16px;
+    }
+    #display {
+        font-weight: bold;
+        font-size: 20px;
+        min-width: 150px;
+        display: inline-block;
+    }
+</style>
+
+<script>
+let currentInput = "";
+let previousInput = "";
+let operator = "";
+
+function press(num) {
+    currentInput += num;
+    updateDisplay();
+}
+
+function setOperator(op) {
+    if (currentInput === "" && previousInput === "") return;
+    if (previousInput !== "") calculate();
+    operator = op;
+    previousInput = currentInput;
+    currentInput = "";
+}
+
+function calculate() {
+    let num1 = parseFloat(previousInput);
+    let num2 = parseFloat(currentInput);
+    let result;
+
+    if (isNaN(num1) || isNaN(num2)) return;
+
+    switch(operator) {
+        case '+': result = num1 + num2; break;
+        case '-': result = num1 - num2; break;
+        case '*': result = num1 * num2; break;
+        case '/': 
+            result = num2 === 0 ? "Error" : num1 / num2; 
+            break;
+        default: return;
+    }
+
+    currentInput = result.toString();
+    previousInput = "";
+    operator = "";
+    updateDisplay();
+}
+
+function clearAll() {
+    currentInput = "";
+    previousInput = "";
+    operator = "";
+    updateDisplay();
+}
+
+function updateDisplay() {
+    document.getElementById("display").innerHTML = currentInput || "0";
+}
+</script>
+</head>
+<body>
+
+<h3>Simple JavaScript Calculator</h3>
+
+<div>
+    <span id="display">0</span>
+</div>
+<br>
+
+<!-- Number buttons -->
+<button onclick="press('7')">7</button>
+<button onclick="press('8')">8</button>
+<button onclick="press('9')">9</button>
+<button onclick="setOperator('/')">/</button>
+<br>
+<button onclick="press('4')">4</button>
+<button onclick="press('5')">5</button>
+<button onclick="press('6')">6</button>
+<button onclick="setOperator('*')">*</button>
+<br>
+<button onclick="press('1')">1</button>
+<button onclick="press('2')">2</button>
+<button onclick="press('3')">3</button>
+<button onclick="setOperator('-')">-</button>
+<br>
+<button onclick="press('0')">0</button>
+<button onclick="press('.')">.</button>
+<button onclick="calculate()">=</button>
+<button onclick="setOperator('+')">+</button>
+<br>
+<button onclick="clearAll()">Clear</button>
+
+</body>
+</html>
