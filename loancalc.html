@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Loan Payment Calculator</title>
+<style>
+    body {
+      font-family: Arial, sans-serif;
+      background: linear-gradient(to right, #f0f8ff, #e6f7ff);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+      margin: 0;
+    }
+    .calculator {
+      background: #ffffff;
+      padding: 30px 40px;
+      border-radius: 15px;
+      box-shadow: 0 8px 20px rgba(0,0,0,0.2);
+      width: 350px;
+      text-align: center;
+    }
+    h2 {
+      margin-bottom: 20px;
+      color: #007acc;
+    }
+    label {
+      display: block;
+      text-align: left;
+      margin-top: 15px;
+      font-weight: bold;
+      color: #333;
+    }
+    input[type="number"] {
+      width: 100%;
+      padding: 8px;
+      margin-top: 5px;
+      border-radius: 5px;
+      border: 1px solid #ccc;
+      box-sizing: border-box;
+    }
+    button {
+      margin-top: 20px;
+      background-color: #007acc;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      font-size: 16px;
+      border-radius: 8px;
+      cursor: pointer;
+    }
+    button:hover {
+      background-color: #005fa3;
+    }
+    .result {
+      margin-top: 25px;
+      font-size: 18px;
+      font-weight: bold;
+      color: #007700;
+    }
+</style>
+</head>
+<body>
+
+<div class="calculator">
+  <h2>Loan Payment Calculator</h2>
+
+  <label for="pv">Loan Amount (PV)</label>
+  <input type="number" id="pv" placeholder="Enter loan amount">
+  <label for="n">Number of Years</label>
+  <input type="number" id="n" placeholder="Enter number of years">
+  <label for="r">Annual Interest Rate (%)</label>
+  <input type="number" id="r" placeholder="Enter interest rate">
+
+  <button onclick="calculatePayment()">Calculate Payment</button>
+
+  <div class="result" id="ans">Monthly Payment: $0.00</div>
+</div>
+
+<script>
+function calculatePayment() {
+    let PV = parseFloat(document.getElementById("pv").value);
+    let r = parseFloat(document.getElementById("r").value);
+    let n = parseFloat(document.getElementById("n").value);
+
+    if (isNaN(PV) || isNaN(r) || isNaN(n) || PV <= 0 || r < 0 || n <= 0) {
+        alert("Please enter valid positive numbers for all fields.");
+        return;
+    }
+
+    let P = ((r/100/12) * PV) / (1 - (1 + (r/100/12)) ** -(n*12));
+
+    document.getElementById("ans").innerHTML = `If you have a $${PV} Loan for ${n} Years at a ${r}% Rate, your Monthly Payment will be $${P.toFixed(2)}`;
+}
+</script>
+
+</body>
+</html>
