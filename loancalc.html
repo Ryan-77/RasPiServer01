@@ -85,7 +85,7 @@ function calculatePayment() {
     let n = parseFloat(document.getElementById("n").value);
 
     if (isNaN(PV) || isNaN(r) || isNaN(n) || PV <= 0 || r < 0 || n <= 0) {
-        alert("Please enter valid positive numbers for all fields.");
+        alert("Invalid input.");
         return;
     }
 
