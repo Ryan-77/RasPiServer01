@@ -97,6 +97,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $coin = strtolower(trim($_POST['coin'] ?? ''));
         db()->prepare("DELETE FROM portfolio WHERE coin = ?")->execute([$coin]);
         $_SESSION['flash'] = ['type'=>'ok','msg'=>strtoupper($coin).' removed.'];
+    } elseif ($action === 'run_analysis') {
+        shell_exec('python3 /var/www/html/crypto/crypto.py >> ' . escapeshellarg($LOG_FILE) . ' 2>&1 &');
+        $_SESSION['flash'] = ['type'=>'ok','msg'=>'Analysis triggered — results will appear shortly.'];
+        header('Location: ' . buildUrl(['view'=>'analysis'])); exit;
     }
 
     header('Location: ' . buildUrl(['view'=>'portfolio'])); exit;
@@ -499,7 +503,14 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
 <div class="panel">
   <div class="ph">
     <div class="ph-t">📊 RANKED SIGNALS — ALL MODULES</div>
-    <div class="ph-m">UPDATED: <?= date('H:i:s') ?></div>
+    <div style="display:flex;align-items:center;gap:12px">
+      <div class="ph-m">UPDATED: <?= date('H:i:s') ?></div>
+      <form method="POST" style="margin:0">
+        <input type="hidden" name="_csrf" value="<?= csrf() ?>">
+        <input type="hidden" name="action" value="run_analysis">
+        <button type="submit" class="btn btn-g">⟳ RUN NOW</button>
+      </form>
+    </div>
   </div>
 
   <?php
