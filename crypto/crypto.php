@@ -11,10 +11,13 @@ $PAGE_SIZE = 25;
 $AUTH_PASS = 'changeme';  // ← change this
 
 $SUPPORTED_COINS = [
-    'btc'  => 'Bitcoin',    'eth'  => 'Ethereum',   'sol'  => 'Solana',
-    'ltc'  => 'Litecoin',   'xrp'  => 'XRP',        'bch'  => 'Bitcoin Cash',
-    'link' => 'Chainlink',  'ada'  => 'Cardano',     'avax' => 'Avalanche',
-    'doge' => 'Dogecoin',   'dot'  => 'Polkadot',   'matic'=> 'Polygon',
+    'btc'  => 'Bitcoin',      'eth'  => 'Ethereum',     'xrp'  => 'XRP',
+    'bnb'  => 'BNB',          'sol'  => 'Solana',       'doge' => 'Dogecoin',
+    'ada'  => 'Cardano',      'trx'  => 'TRON',         'avax' => 'Avalanche',
+    'link' => 'Chainlink',    'ton'  => 'TON',          'sui'  => 'Sui',
+    'shib' => 'Shiba Inu',    'dot'  => 'Polkadot',     'near' => 'NEAR',
+    'ltc'  => 'Litecoin',     'bch'  => 'Bitcoin Cash', 'matic'=> 'Polygon',
+    'xlm'  => 'Stellar',      'hbar' => 'Hedera',
 ];
 
 // ══════════════════════════════════════════════════════════════
@@ -25,6 +28,7 @@ if (!isset($_SESSION['auth'])) {
     if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pass'] ?? '') === $AUTH_PASS) {
         $_SESSION['auth'] = true;
         $_SESSION['csrf'] = bin2hex(random_bytes(32));
+        header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?')); exit;
     } else {
         $err = $_SERVER['REQUEST_METHOD'] === 'POST';
         renderLogin($err); exit;
@@ -101,6 +105,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         shell_exec('python3 /var/www/html/crypto/crypto.py >> ' . escapeshellarg($LOG_FILE) . ' 2>&1 &');
         $_SESSION['flash'] = ['type'=>'ok','msg'=>'Analysis triggered — results will appear shortly.'];
         header('Location: ' . buildUrl(['view'=>'analysis'])); exit;
+    } elseif ($action === 'dismiss_alert') {
+        $id = (int)($_POST['alert_id'] ?? 0);
+        if ($id > 0) db()->prepare("UPDATE alerts SET status='seen' WHERE id=?")->execute([$id]);
+        $_SESSION['flash'] = ['type'=>'ok','msg'=>'Alert dismissed.'];
+        header('Location: ' . buildUrl(['view'=>'alerts'])); exit;
+    } elseif ($action === 'dismiss_all') {
+        db()->exec("UPDATE alerts SET status='seen' WHERE status='new'");
+        $_SESSION['flash'] = ['type'=>'ok','msg'=>'All alerts cleared.'];
+        header('Location: ' . buildUrl(['view'=>'alerts'])); exit;
     }
 
     header('Location: ' . buildUrl(['view'=>'portfolio'])); exit;
@@ -109,7 +122,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ══════════════════════════════════════════════════════════════
 //  VIEW DATA
 // ══════════════════════════════════════════════════════════════
-$view = in_array($_GET['view'] ?? '', ['portfolio','analysis','log','db']) ? $_GET['view'] : 'analysis';
+$view = in_array($_GET['view'] ?? '', ['portfolio','analysis','log','db','alerts']) ? $_GET['view'] : 'analysis';
 $page = max(1, (int)($_GET['page'] ?? 1));
 
 // Portfolio
@@ -161,6 +174,38 @@ if ($view === 'db' && file_exists($DB_FILE)) {
     } catch (Exception $e) { $dbError = h($e->getMessage()); }
 }
 $totalPages = max(1, (int)ceil($dbTotal / $PAGE_SIZE));
+
+// Alerts
+$unseenCount = 0; $alerts = []; $alertError = null;
+if (file_exists($DB_FILE)) {
+    try {
+        $unseenCount = (int)db()->query("SELECT COUNT(*) FROM alerts WHERE status='new'")->fetchColumn();
+        if ($view === 'alerts') {
+            $alerts = db()->query("SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
+        }
+    } catch (Exception $e) { $alertError = h($e->getMessage()); }
+}
+
+// Paper trades with live P&L
+$paperTrades = []; $paperPnl = 0.0;
+if (file_exists($DB_FILE)) {
+    try {
+        $rows = db()->query("SELECT * FROM paper_trades ORDER BY timestamp DESC")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as &$t) {
+            $cur             = $latestPrices[$t['coin']] ?? $t['entry_price'];
+            $t['current_price'] = $cur;
+            $pnl             = $t['action'] === 'buy'
+                ? ($cur - $t['entry_price']) * $t['amount_coin']
+                : ($t['entry_price'] - $cur) * $t['amount_coin'];
+            $t['pnl_usd']    = round($pnl, 2);
+            $t['pnl_pct']    = $t['amount_usd'] > 0 ? round(($pnl / $t['amount_usd']) * 100, 2) : 0;
+            $paperPnl       += $pnl;
+        }
+        unset($t);
+        $paperTrades = $rows;
+    } catch (Exception $e) {}
+}
+$paperPnl = round($paperPnl, 2);
 
 // Flash message
 $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
@@ -414,6 +459,22 @@ details[open] summary::before{content:'▼ '}
 /* Footer */
 .footer{text-align:center;padding:20px;margin-top:18px;font-size:.58rem;letter-spacing:3px;color:var(--t3)}
 
+/* Alert badge */
+.badge{display:inline-flex;align-items:center;justify-content:center;min-width:18px;height:18px;
+       padding:0 5px;border-radius:9px;font-size:.55rem;font-weight:700;
+       background:var(--rd);color:#fff;margin-left:5px;vertical-align:middle}
+
+/* Alert cards */
+.alert-card{background:var(--s2);border:1px solid var(--b1);border-radius:var(--r);
+            overflow:hidden;transition:border-color .2s;border-left:3px solid var(--rd)}
+.alert-card.seen{border-left-color:var(--b2);opacity:.55}
+.alert-top{display:flex;align-items:center;gap:10px;padding:12px 16px;flex-wrap:wrap}
+
+/* P&L colors */
+.pnl-pos{color:var(--gn)}
+.pnl-neg{color:var(--rd)}
+.pnl-zero{color:var(--t3)}
+
 /* Responsive */
 @media(max-width:700px){
   .hdr{flex-direction:column;gap:14px;text-align:center}
@@ -481,11 +542,21 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
     </div>
     <div class="pstat-s">rebalance <?= $hasTargets ? 'active' : 'inactive' ?></div>
   </div>
+  <div class="pstat">
+    <div class="pstat-l">PAPER P&amp;L</div>
+    <div class="pstat-v" style="color:<?= $paperPnl > 0 ? 'var(--gn)' : ($paperPnl < 0 ? 'var(--rd)' : 'var(--t3)') ?>">
+      <?= $paperPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($paperPnl), 2) ?>
+    </div>
+    <div class="pstat-s"><?= count($paperTrades) ?> trade<?= count($paperTrades) !== 1 ? 's' : '' ?> tracked · <?= $unseenCount ?> new alert<?= $unseenCount !== 1 ? 's' : '' ?></div>
+  </div>
 </div>
 
 <!-- NAV -->
 <nav class="nav">
   <a href="<?= buildUrl(['view'=>'analysis']) ?>" class="<?= $view==='analysis'?'active':'' ?>">📊 ANALYSIS</a>
+  <a href="<?= buildUrl(['view'=>'alerts']) ?>" class="<?= $view==='alerts'?'active':'' ?>">
+    🔔 ALERTS<?php if ($unseenCount > 0): ?><span class="badge"><?= $unseenCount ?></span><?php endif ?>
+  </a>
   <a href="<?= buildUrl(['view'=>'portfolio']) ?>" class="<?= $view==='portfolio'?'active':'' ?>">💼 PORTFOLIO</a>
   <a href="<?= buildUrl(['view'=>'log']) ?>" class="<?= $view==='log'?'active':'' ?>">📋 LOG</a>
   <a href="<?= buildUrl(['view'=>'db']) ?>" class="<?= $view==='db'?'active':'' ?>">🗄 RAW DB</a>
@@ -732,6 +803,120 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
   ?></div>
   <?php endif; ?>
 </div>
+
+<!-- ══ ALERTS VIEW ════════════════════════════════════════════════════════════ -->
+<?php elseif ($view === 'alerts'): ?>
+<div class="panel">
+  <div class="ph">
+    <div class="ph-t">🔔 ALERTS<?php if ($unseenCount > 0): ?> <span style="color:var(--rd)">(<?= $unseenCount ?> NEW)</span><?php endif ?></div>
+    <div style="display:flex;align-items:center;gap:10px">
+      <div class="ph-m"><?= count($alerts) ?> TOTAL</div>
+      <?php if ($unseenCount > 0): ?>
+      <form method="POST" style="margin:0">
+        <input type="hidden" name="_csrf" value="<?= csrf() ?>">
+        <input type="hidden" name="action" value="dismiss_all">
+        <button type="submit" class="btn btn-g">✓ DISMISS ALL</button>
+      </form>
+      <?php endif ?>
+    </div>
+  </div>
+
+  <?php if ($alertError): ?>
+    <div class="err-box">⚠ <?= $alertError ?> — run the analysis at least once to create the alerts table.</div>
+  <?php elseif (empty($alerts)): ?>
+    <div class="state">
+      <div class="state-i">🔔</div>
+      <div class="state-t">NO ALERTS YET</div>
+      <div class="state-s">Alerts fire when signal strength exceeds 50% — run the analysis first</div>
+    </div>
+  <?php else: ?>
+  <div class="signals-grid">
+    <?php foreach ($alerts as $al):
+      $sc    = strategyColor($al['strategy']);
+      $sigc  = signalColor($al['signal']);
+      $icon  = signalIcon($al['signal']);
+      $coins = explode(',', $al['coins']);
+      $pct   = round($al['strength'] * 100);
+      $ts    = date('d M H:i', strtotime($al['timestamp']));
+      $isNew = $al['status'] === 'new';
+    ?>
+    <div class="alert-card <?= $isNew ? '' : 'seen' ?>">
+      <div class="alert-top">
+        <?php if ($isNew): ?>
+        <span style="font-size:.58rem;letter-spacing:2px;color:var(--rd);font-weight:700">NEW</span>
+        <?php endif ?>
+        <div class="strat-badge" style="background:<?= $sc ?>22;border:1px solid <?= $sc ?>44;color:<?= $sc ?>">
+          <?= strtoupper(h($al['strategy'])) ?>
+        </div>
+        <div class="coin-badges">
+          <?php foreach ($coins as $c): ?>
+          <span class="coin-badge"><?= strtoupper(h($c)) ?></span>
+          <?php endforeach ?>
+        </div>
+        <div class="sig-signal" style="color:<?= $sigc ?>"><?= $icon ?> <?= h($al['signal']) ?></div>
+        <div class="sig-sp"></div>
+        <?php if ($al['expected_usd'] > 0): ?>
+        <div class="sig-usd">~$<?= number_format((float)$al['expected_usd'], 2) ?></div>
+        <?php endif ?>
+        <?php if ($isNew): ?>
+        <form method="POST" style="margin:0">
+          <input type="hidden" name="_csrf" value="<?= csrf() ?>">
+          <input type="hidden" name="action" value="dismiss_alert">
+          <input type="hidden" name="alert_id" value="<?= $al['id'] ?>">
+          <button type="submit" class="btn-del">✓ SEEN</button>
+        </form>
+        <?php endif ?>
+      </div>
+      <div class="strength-wrap">
+        <span style="font-size:.6rem;letter-spacing:2px;color:var(--t3)">STRENGTH</span>
+        <div class="strength-bar">
+          <div class="strength-fill" style="width:<?= $pct ?>%;background:<?= $sc ?>"></div>
+        </div>
+        <div class="strength-val"><?= $pct ?>% · score <?= number_format((float)$al['strength'], 3) ?></div>
+      </div>
+      <div class="sig-ts"><?= $ts ?> UTC · alert #<?= $al['id'] ?></div>
+    </div>
+    <?php endforeach ?>
+  </div>
+  <?php endif ?>
+</div>
+
+<!-- Paper Trade Performance -->
+<?php if (!empty($paperTrades)): ?>
+<div class="panel" style="margin-top:18px">
+  <div class="ph">
+    <div class="ph-t">📈 PAPER TRADE PERFORMANCE</div>
+    <div class="ph-m" style="color:<?= $paperPnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>;font-weight:700">
+      TOTAL P&amp;L: <?= $paperPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($paperPnl), 2) ?>
+    </div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>ALERT</th><th>COIN</th><th>ACTION</th>
+        <th>ENTRY PRICE</th><th>CURRENT PRICE</th><th>P&amp;L (USD)</th><th>P&amp;L (%)</th><th>DATE</th>
+      </tr></thead>
+      <tbody>
+      <?php foreach ($paperTrades as $t):
+        $pnlClass  = $t['pnl_usd'] > 0 ? 'pnl-pos' : ($t['pnl_usd'] < 0 ? 'pnl-neg' : 'pnl-zero');
+        $actColor  = $t['action'] === 'buy' ? 'var(--gn)' : 'var(--rd)';
+      ?>
+      <tr>
+        <td class="muted">#<?= $t['alert_id'] ?></td>
+        <td style="font-weight:700;color:var(--ac)"><?= strtoupper(h($t['coin'])) ?></td>
+        <td style="color:<?= $actColor ?>;letter-spacing:1px;font-size:.72rem"><?= strtoupper(h($t['action'])) ?></td>
+        <td class="num">$<?= number_format((float)$t['entry_price'], 2) ?></td>
+        <td class="num">$<?= number_format((float)$t['current_price'], 2) ?></td>
+        <td class="num <?= $pnlClass ?>"><?= $t['pnl_usd'] >= 0 ? '+' : '' ?>$<?= number_format(abs($t['pnl_usd']), 2) ?></td>
+        <td class="num <?= $pnlClass ?>"><?= $t['pnl_pct'] >= 0 ? '+' : '' ?><?= $t['pnl_pct'] ?>%</td>
+        <td class="muted"><?= date('d M H:i', strtotime($t['timestamp'])) ?></td>
+      </tr>
+      <?php endforeach ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+<?php endif ?>
 
 <!-- ══ RAW DB VIEW ════════════════════════════════════════════════════════════ -->
 <?php elseif ($view === 'db'): ?>

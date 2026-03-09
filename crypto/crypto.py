@@ -19,31 +19,47 @@ DB_PATH      = "/var/www/data/crypto.db"
 LOG_FILE     = "/var/www/html/crypto/log.txt"
 TZ           = ZoneInfo("America/Denver")
 
-ARB_THRESHOLD       = float(os.getenv("ARBITRAGE_THRESHOLD",   "1.002"))
-PAIRS_ZSCORE_ENTRY  = float(os.getenv("PAIRS_ZSCORE_ENTRY",    "2.0"))
-MOMENTUM_RSI_HIGH   = float(os.getenv("MOMENTUM_RSI_HIGH",     "70.0"))
-MOMENTUM_RSI_LOW    = float(os.getenv("MOMENTUM_RSI_LOW",      "30.0"))
-REBALANCE_DRIFT     = float(os.getenv("REBALANCE_DRIFT_PCT",   "5.0"))
-FEE_RATE            = float(os.getenv("FEE_RATE",              "0.001"))
+ARB_THRESHOLD            = float(os.getenv("ARBITRAGE_THRESHOLD",    "1.002"))
+PAIRS_ZSCORE_ENTRY       = float(os.getenv("PAIRS_ZSCORE_ENTRY",     "2.0"))
+MOMENTUM_RSI_HIGH        = float(os.getenv("MOMENTUM_RSI_HIGH",      "70.0"))
+MOMENTUM_RSI_LOW         = float(os.getenv("MOMENTUM_RSI_LOW",       "30.0"))
+REBALANCE_DRIFT          = float(os.getenv("REBALANCE_DRIFT_PCT",    "5.0"))
+FEE_RATE                 = float(os.getenv("FEE_RATE",               "0.001"))
+ALERT_STRENGTH_THRESHOLD = float(os.getenv("ALERT_STRENGTH_THRESHOLD","0.2"))
+ALERT_DEDUP_HOURS        = int(os.getenv("ALERT_DEDUP_HOURS",         "1"))
+PRICE_HISTORY_KEEP_DAYS  = int(os.getenv("PRICE_HISTORY_KEEP_DAYS",   "14"))
+SIGNALS_KEEP_DAYS        = int(os.getenv("SIGNALS_KEEP_DAYS",         "90"))
+ALERTS_KEEP_DAYS         = int(os.getenv("ALERTS_KEEP_DAYS",          "90"))
 RSI_PERIOD          = 14
 PAIRS_LOOKBACK_DAYS = 30
 
-# CoinGecko id ↔ ticker mapping
+# CoinGecko id ↔ ticker mapping — broad set covering likely top-20 candidates
 COIN_MAP: Dict[str, str] = {
-    "bitcoin":       "btc",
-    "ethereum":      "eth",
-    "litecoin":      "ltc",
-    "ripple":        "xrp",
-    "bitcoin-cash":  "bch",
-    "chainlink":     "link",
-    "solana":        "sol",
-    "cardano":       "ada",
-    "avalanche-2":   "avax",
-    "dogecoin":      "doge",
-    "polkadot":      "dot",
-    "matic-network": "matic",
+    "bitcoin":            "btc",
+    "ethereum":           "eth",
+    "ripple":             "xrp",
+    "binancecoin":        "bnb",
+    "solana":             "sol",
+    "dogecoin":           "doge",
+    "cardano":            "ada",
+    "tron":               "trx",
+    "avalanche-2":        "avax",
+    "chainlink":          "link",
+    "the-open-network":   "ton",
+    "sui":                "sui",
+    "shiba-inu":          "shib",
+    "polkadot":           "dot",
+    "near":               "near",
+    "litecoin":           "ltc",
+    "bitcoin-cash":       "bch",
+    "matic-network":      "matic",
+    "stellar":            "xlm",
+    "hedera-hashgraph":   "hbar",
 }
 TICKER_TO_ID = {v: k for k, v in COIN_MAP.items()}
+
+# Stablecoins to skip when selecting top market coins
+STABLECOINS = {"usdt", "usdc", "dai", "busd", "tusd", "fdusd", "usdp", "pyusd", "usde", "susde"}
 
 # ── LOGGING ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -61,6 +77,57 @@ def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
     return conn
+
+def setup_db() -> None:
+    with get_db() as conn:
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS alerts (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp    TEXT,
+                strategy     TEXT,
+                coins        TEXT,
+                signal       TEXT,
+                strength     REAL,
+                expected_usd REAL,
+                details      TEXT,
+                status       TEXT DEFAULT 'new'
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS paper_trades (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                alert_id     INTEGER,
+                timestamp    TEXT,
+                coin         TEXT,
+                action       TEXT,
+                entry_price  REAL,
+                amount_coin  REAL,
+                amount_usd   REAL,
+                status       TEXT DEFAULT 'open'
+            )
+        """)
+        conn.commit()
+
+def prune_db() -> None:
+    """Delete old rows to keep the DB small on the Pi."""
+    with get_db() as conn:
+        r1 = conn.execute(
+            f"DELETE FROM price_history WHERE timestamp < datetime('now', '-{PRICE_HISTORY_KEEP_DAYS} days')"
+        )
+        r2 = conn.execute(
+            f"DELETE FROM analysis_signals WHERE timestamp < datetime('now', '-{SIGNALS_KEEP_DAYS} days')"
+        )
+        r3 = conn.execute(
+            f"DELETE FROM alerts WHERE timestamp < datetime('now', '-{ALERTS_KEEP_DAYS} days')"
+        )
+        # Remove paper trades whose parent alert was pruned
+        conn.execute("DELETE FROM paper_trades WHERE alert_id NOT IN (SELECT id FROM alerts)")
+        conn.execute("VACUUM")
+        conn.commit()
+    log.info(
+        f"[PRUNE] Removed: price_history={r1.rowcount}, signals={r2.rowcount}, alerts={r3.rowcount} rows. VACUUM done."
+    )
+
 
 def load_portfolio() -> Dict[str, Dict]:
     """Returns {coin: {amount, target_pct}}"""
@@ -88,6 +155,70 @@ def load_price_history(coin: str, days: int = 30) -> List[float]:
             (coin, f"-{days} days"),
         ).fetchall()
     return [r["price_usd"] for r in rows]
+
+def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -> int:
+    actionable = [s for s in ranked if s["strength"] > ALERT_STRENGTH_THRESHOLD and s["signal"] != "hold"]
+    ts    = datetime.now(tz=timezone.utc).isoformat()
+    count = 0
+    with get_db() as conn:
+        for sig in actionable:
+            coins_str = ",".join(sig["coins"])
+            # Skip if an identical alert already fired within the dedup window
+            existing = conn.execute(
+                """SELECT id FROM alerts WHERE strategy=? AND coins=?
+                   AND timestamp >= datetime('now', ?)""",
+                (sig["strategy"], coins_str, f"-{ALERT_DEDUP_HOURS} hours"),
+            ).fetchone()
+            if existing:
+                log.info(f"[ALERT] Duplicate skipped: {sig['strategy']}/{coins_str}")
+                continue
+
+            cur = conn.execute(
+                """INSERT INTO alerts (timestamp, strategy, coins, signal, strength, expected_usd, details, status)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, 'new')""",
+                (ts, sig["strategy"], coins_str, sig["signal"],
+                 sig["strength"], sig["expected_usd"], json.dumps(sig.get("details", {}))),
+            )
+            alert_id = cur.lastrowid
+            count += 1
+            log.info(f"[ALERT] #{alert_id} {sig['strategy'].upper()} {coins_str} → {sig['signal']} strength={sig['strength']:.3f}")
+
+            # Paper trades — rebalance and momentum: single coin
+            if sig["strategy"] in ("rebalance", "momentum"):
+                coin  = sig["coins"][0]
+                price = prices.get(coin, 0)
+                if price > 0:
+                    notional  = portfolio[coin]["amount"] * price * 0.25 if coin in portfolio else 1000.0
+                    trade_amt = round(notional / price, 8)
+                    conn.execute(
+                        """INSERT INTO paper_trades
+                           (alert_id, timestamp, coin, action, entry_price, amount_coin, amount_usd, status)
+                           VALUES (?, ?, ?, ?, ?, ?, ?, 'open')""",
+                        (alert_id, ts, coin, sig["signal"], price, trade_amt, round(notional, 2)),
+                    )
+
+            # Pairs: two opposing trades
+            elif sig["strategy"] == "pairs" and len(sig["coins"]) == 2:
+                details = sig.get("details", {})
+                for coin, action in [
+                    (sig["coins"][0], details.get("action_a", "buy")),
+                    (sig["coins"][1], details.get("action_b", "sell")),
+                ]:
+                    price = prices.get(coin, 0)
+                    if price > 0:
+                        notional  = portfolio[coin]["amount"] * price * 0.25 if coin in portfolio else 1000.0
+                        trade_amt = round(notional / price, 8)
+                        conn.execute(
+                            """INSERT INTO paper_trades
+                               (alert_id, timestamp, coin, action, entry_price, amount_coin, amount_usd, status)
+                               VALUES (?, ?, ?, ?, ?, ?, ?, 'open')""",
+                            (alert_id, ts, coin, action, price, trade_amt, round(notional, 2)),
+                        )
+            # Arbitrage cycles are skipped — too complex to simulate cleanly
+
+        conn.commit()
+    return count
+
 
 def save_signal(strategy: str, coins: List[str], signal: str,
                 strength: float, expected_usd: float, details: dict) -> None:
@@ -131,6 +262,54 @@ def fetch_cross_prices(coins: List[str]) -> Dict:
         f"https://api.coingecko.com/api/v3/simple/price"
         f"?ids={','.join(ids)}&vs_currencies=usd,{','.join(vs)}"
     )
+
+def fetch_top_coins(n: int = 10) -> List[str]:
+    """Return top n non-stablecoin tickers by market cap. Dynamically updates COIN_MAP."""
+    try:
+        data = _get(
+            "https://api.coingecko.com/api/v3/coins/markets"
+            "?vs_currency=usd&order=market_cap_desc&per_page=30&page=1&sparkline=false"
+        )
+        result = []
+        for coin in data:
+            ticker = coin["symbol"].lower()
+            if ticker in STABLECOINS:
+                continue
+            cid = coin["id"]
+            # Register any unknown coin so our fetch functions can handle it
+            if cid not in COIN_MAP:
+                COIN_MAP[cid] = ticker
+                TICKER_TO_ID[ticker] = cid
+            result.append(ticker)
+            if len(result) >= n:
+                break
+        log.info(f"[TOP{n}] {', '.join(t.upper() for t in result)}")
+        return result
+    except Exception as e:
+        log.warning(f"[TOP{n}] API fetch failed ({e}), using fallback list")
+        return ["btc", "eth", "xrp", "bnb", "sol", "doge", "ada", "trx", "avax", "link"]
+
+
+_history_cache: Dict[str, List[float]] = {}
+
+def fetch_market_history(coin: str, days: int = 30) -> List[float]:
+    """Fetch historical prices from CoinGecko market_chart API. Cached per run."""
+    key = f"{coin}:{days}"
+    if key in _history_cache:
+        return _history_cache[key]
+    cid = TICKER_TO_ID.get(coin)
+    if not cid:
+        return []
+    try:
+        data   = _get(f"https://api.coingecko.com/api/v3/coins/{cid}/market_chart?vs_currency=usd&days={days}")
+        prices = [p[1] for p in data.get("prices", [])]
+        _history_cache[key] = prices
+        log.info(f"[HISTORY] {coin.upper()}: {len(prices)} pts over {days}d from API")
+        return prices
+    except Exception as e:
+        log.warning(f"[HISTORY] {coin.upper()} fetch failed: {e}")
+        return []
+
 
 # ── HELPERS ────────────────────────────────────────────────────────────────────
 def zscore(series: List[float]) -> float:
@@ -200,13 +379,13 @@ def analyze_rebalance(portfolio: Dict, prices: Dict[str, float]) -> List[dict]:
     return signals
 
 # ── MODULE 2: PAIRS TRADING ────────────────────────────────────────────────────
-def analyze_pairs(portfolio: Dict, prices: Dict[str, float]) -> List[dict]:
+def analyze_pairs(portfolio: Dict, prices: Dict[str, float], market_coins: List[str]) -> List[dict]:
     signals = []
-    coins   = [c for c in portfolio if c in prices]
+    coins   = [c for c in market_coins if c in prices]
 
     for coin_a, coin_b in itertools.combinations(coins, 2):
-        hist_a = load_price_history(coin_a, PAIRS_LOOKBACK_DAYS)
-        hist_b = load_price_history(coin_b, PAIRS_LOOKBACK_DAYS)
+        hist_a = fetch_market_history(coin_a, PAIRS_LOOKBACK_DAYS)
+        hist_b = fetch_market_history(coin_b, PAIRS_LOOKBACK_DAYS)
 
         n = min(len(hist_a), len(hist_b))
         if n < 10:
@@ -233,8 +412,9 @@ def analyze_pairs(portfolio: Dict, prices: Dict[str, float]) -> List[dict]:
             action_a, action_b = "buy", "sell"
             desc = f"{coin_a.upper()} undervalued vs {coin_b.upper()}"
 
-        val_a     = portfolio[coin_a]["amount"] * prices[coin_a]
-        val_b     = portfolio[coin_b]["amount"] * prices[coin_b]
+        # Use portfolio value if held, else $1000 notional per side
+        val_a     = portfolio[coin_a]["amount"] * prices[coin_a] if coin_a in portfolio else 1000.0
+        val_b     = portfolio[coin_b]["amount"] * prices[coin_b] if coin_b in portfolio else 1000.0
         trade_usd = min(val_a, val_b) * 0.5
         strength  = min(abs(z) / 4.0, 1.0)
 
@@ -261,9 +441,9 @@ def analyze_pairs(portfolio: Dict, prices: Dict[str, float]) -> List[dict]:
 
 # ── MODULE 3: ARBITRAGE (BELLMAN-FORD) ────────────────────────────────────────
 def analyze_arbitrage(portfolio: Dict, cross_prices: Dict,
-                       prices: Dict[str, float]) -> List[dict]:
+                       prices: Dict[str, float], market_coins: List[str]) -> List[dict]:
     signals = []
-    coins   = list(portfolio.keys())
+    coins   = [c for c in market_coins if c in prices]
 
     g = nx.DiGraph()
     for coin in coins:
@@ -304,10 +484,11 @@ def analyze_arbitrage(portfolio: Dict, cross_prices: Dict,
             log.info(f"[ARBITRAGE] Best cycle factor {factor:.6f} below threshold {ARB_THRESHOLD}")
             return signals
 
+        # Use portfolio value if held, else $1000 notional per coin in cycle
+        held = [c for c in cycle if c in portfolio]
         trade_usd = min(
-            (portfolio.get(c, {}).get("amount", 0) * prices.get(c, 0))
-            for c in cycle if c in portfolio
-        )
+            (portfolio[c]["amount"] * prices.get(c, 0)) for c in held
+        ) if held else 1000.0
         strength = min((factor - 1.0) / 0.01, 1.0)
 
         signals.append({
@@ -336,14 +517,14 @@ def analyze_arbitrage(portfolio: Dict, cross_prices: Dict,
     return signals
 
 # ── MODULE 4: MOMENTUM (RSI + ROC) ────────────────────────────────────────────
-def analyze_momentum(portfolio: Dict, prices: Dict[str, float]) -> List[dict]:
+def analyze_momentum(portfolio: Dict, prices: Dict[str, float], market_coins: List[str]) -> List[dict]:
     signals = []
 
-    for coin in portfolio:
+    for coin in market_coins:
         if coin not in prices:
             continue
 
-        history = load_price_history(coin, days=30)
+        history = fetch_market_history(coin, days=30)
         if len(history) < RSI_PERIOD + 2:
             log.info(f"[MOMENTUM] {coin.upper()}: insufficient history ({len(history)} pts), skipping")
             continue
@@ -360,7 +541,8 @@ def analyze_momentum(portfolio: Dict, prices: Dict[str, float]) -> List[dict]:
         else:
             signal, label, strength = "hold", "neutral", 0.0
 
-        trade_usd = portfolio[coin]["amount"] * prices[coin] * 0.25
+        # Use portfolio value if held, else $1000 notional
+        trade_usd = portfolio[coin]["amount"] * prices[coin] * 0.25 if coin in portfolio else 1000.0
 
         signals.append({
             "strategy":     "momentum",
@@ -393,19 +575,26 @@ def main() -> None:
     log.info("=" * 60)
     log.info("Portfolio-Directed Crypto Analysis Engine — START")
 
+    setup_db()
+    prune_db()
+
     portfolio = load_portfolio()
     if not portfolio:
         log.error("Portfolio is empty. Add coins via the web dashboard.")
         sys.exit(1)
 
-    coins = list(portfolio.keys())
     portfolio_str = ', '.join(f"{c.upper()}={v['amount']}" for c, v in portfolio.items())
     log.info(f"Portfolio: {portfolio_str}")
 
+    log.info("Fetching top 10 market coins...")
+    market_coins = fetch_top_coins(10)
+
+    # Fetch prices for union of market coins + portfolio coins
+    all_coins = list(set(list(portfolio.keys()) + market_coins))
     log.info("Fetching prices from CoinGecko...")
     try:
-        prices       = fetch_usd_prices(coins)
-        cross_prices = fetch_cross_prices(coins)
+        prices       = fetch_usd_prices(all_coins)
+        cross_prices = fetch_cross_prices(market_coins)
     except Exception as e:
         log.error(f"Price fetch failed: {e}")
         sys.exit(1)
@@ -414,12 +603,15 @@ def main() -> None:
     save_price_history(prices)
 
     all_signals  = []
-    all_signals += analyze_rebalance(portfolio, prices)
-    all_signals += analyze_pairs(portfolio, prices)
-    all_signals += analyze_arbitrage(portfolio, cross_prices, prices)
-    all_signals += analyze_momentum(portfolio, prices)
+    all_signals += analyze_rebalance(portfolio, prices)           # portfolio only
+    all_signals += analyze_pairs(portfolio, prices, market_coins)
+    all_signals += analyze_arbitrage(portfolio, cross_prices, prices, market_coins)
+    all_signals += analyze_momentum(portfolio, prices, market_coins)
 
     ranked = score_and_rank(all_signals)
+
+    alert_count = save_alerts(ranked, prices, portfolio)
+    log.info(f"Alerts: {alert_count} new alert(s) created")
 
     for sig in ranked:
         save_signal(
