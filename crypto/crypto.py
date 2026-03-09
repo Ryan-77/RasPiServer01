@@ -57,7 +57,21 @@ COIN_MAP: Dict[str, str] = {
 TICKER_TO_ID = {v: k for k, v in COIN_MAP.items()}
 
 # Stablecoins to skip when selecting top market coins
-STABLECOINS = {"usdt", "usdc", "dai", "busd", "tusd", "fdusd", "usdp", "pyusd", "usde", "susde"}
+STABLECOINS = {"usdt", "usdc", "dai", "busd", "tusd", "fdusd", "usdp", "pyusd", "usde", "susde", "usds", "frax", "lusd", "gusd", "usdx"}
+
+# Exchange tokens / wrapped assets / other junk to skip
+SKIP_TICKERS = {"wbt", "wbtc", "leo", "ht", "okb", "gt", "kcs", "btt", "wemix", "nexo"}
+
+# Binance Spot symbols for historical data (no rate limits, no auth)
+BINANCE_SYMBOLS: Dict[str, str] = {
+    "btc":  "BTCUSDT",  "eth":  "ETHUSDT",  "xrp":  "XRPUSDT",
+    "bnb":  "BNBUSDT",  "sol":  "SOLUSDT",  "doge": "DOGEUSDT",
+    "ada":  "ADAUSDT",  "trx":  "TRXUSDT",  "avax": "AVAXUSDT",
+    "link": "LINKUSDT", "ton":  "TONUSDT",  "sui":  "SUIUSDT",
+    "shib": "SHIBUSDT", "dot":  "DOTUSDT",  "near": "NEARUSDT",
+    "ltc":  "LTCUSDT",  "bch":  "BCHUSDT",  "matic":"MATICUSDT",
+    "xlm":  "XLMUSDT",  "hbar": "HBARUSDT",
+}
 
 # ── LOGGING ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -266,26 +280,35 @@ def fetch_usd_prices(coins: List[str]) -> Dict[str, float]:
     )
     return {COIN_MAP[cid]: data[cid]["usd"] for cid in ids if cid in data}
 
-def fetch_cross_prices(coins: List[str]) -> Dict:
-    """Returns raw CoinGecko response with cross-rates between all coins."""
-    ids = [TICKER_TO_ID[c] for c in coins if c in TICKER_TO_ID]
-    vs  = list(COIN_MAP.values())  # all tickers as vs_currencies
-    return _get(
-        f"https://api.coingecko.com/api/v3/simple/price"
-        f"?ids={','.join(ids)}&vs_currencies=usd,{','.join(vs)}"
-    )
+def build_cross_prices(coins: List[str], prices: Dict[str, float]) -> Dict:
+    """Compute cross-rates from USD prices — no extra API call, fully accurate.
+    Returns {coingecko_id: {ticker: rate}} matching the shape analyze_arbitrage expects."""
+    result = {}
+    for coin in coins:
+        if coin not in prices or prices[coin] == 0:
+            continue
+        cid = TICKER_TO_ID.get(coin)
+        if not cid:
+            continue
+        result[cid] = {
+            other: prices[coin] / prices[other]
+            for other in coins
+            if other in prices and other != coin and prices[other] > 0
+        }
+    return result
 
 def fetch_top_coins(n: int = 10) -> List[str]:
     """Return top n non-stablecoin tickers by market cap. Dynamically updates COIN_MAP."""
     try:
         data = _get(
             "https://api.coingecko.com/api/v3/coins/markets"
-            "?vs_currency=usd&order=market_cap_desc&per_page=30&page=1&sparkline=false"
+            "?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&sparkline=false"
         )
         result = []
         for coin in data:
             ticker = coin["symbol"].lower()
-            if ticker in STABLECOINS:
+            # Skip stablecoins, exchange tokens, and anything with underscores (always junk)
+            if ticker in STABLECOINS or ticker in SKIP_TICKERS or "_" in ticker:
                 continue
             cid = coin["id"]
             # Register any unknown coin so our fetch functions can handle it
@@ -305,21 +328,41 @@ def fetch_top_coins(n: int = 10) -> List[str]:
 _history_cache: Dict[str, List[float]] = {}
 
 def fetch_market_history(coin: str, days: int = 30) -> List[float]:
-    """Fetch historical prices from CoinGecko market_chart API. Cached per run."""
+    """Fetch hourly closing prices. Binance first (no rate limit), CoinGecko fallback."""
     key = f"{coin}:{days}"
     if key in _history_cache:
         return _history_cache[key]
+
+    # ── Binance (primary: free, no auth, 1200 req/min) ────────────────────────
+    symbol = BINANCE_SYMBOLS.get(coin)
+    if symbol:
+        try:
+            limit = min(days * 24, 1000)
+            data  = _get(
+                f"https://api.binance.com/api/v3/klines"
+                f"?symbol={symbol}&interval=1h&limit={limit}"
+            )
+            prices = [float(k[4]) for k in data]   # index 4 = close price
+            _history_cache[key] = prices
+            log.info(f"[HISTORY] {coin.upper()}: {len(prices)} pts over {days}d from Binance")
+            return prices
+        except Exception as e:
+            log.warning(f"[HISTORY] {coin.upper()} Binance failed ({e}), trying CoinGecko")
+
+    # ── CoinGecko (fallback for coins not on Binance) ─────────────────────────
     cid = TICKER_TO_ID.get(coin)
     if not cid:
+        _history_cache[key] = []
         return []
     try:
         data   = _get(f"https://api.coingecko.com/api/v3/coins/{cid}/market_chart?vs_currency=usd&days={days}")
         prices = [p[1] for p in data.get("prices", [])]
         _history_cache[key] = prices
-        log.info(f"[HISTORY] {coin.upper()}: {len(prices)} pts over {days}d from API")
+        log.info(f"[HISTORY] {coin.upper()}: {len(prices)} pts over {days}d from CoinGecko")
         return prices
     except Exception as e:
-        log.warning(f"[HISTORY] {coin.upper()} fetch failed: {e}")
+        log.warning(f"[HISTORY] {coin.upper()} CoinGecko failed ({e})")
+        _history_cache[key] = []   # cache the failure — don't retry this run
         return []
 
 
@@ -604,12 +647,12 @@ def main() -> None:
     all_coins = list(set(list(portfolio.keys()) + market_coins))
     log.info("Fetching prices from CoinGecko...")
     try:
-        prices       = fetch_usd_prices(all_coins)
-        cross_prices = fetch_cross_prices(market_coins)
+        prices = fetch_usd_prices(all_coins)
     except Exception as e:
         log.error(f"Price fetch failed: {e}")
         sys.exit(1)
 
+    cross_prices = build_cross_prices(market_coins, prices)
     log.info(f"Prices: {', '.join(f'{c.upper()}=${p:,.2f}' for c, p in prices.items())}")
     save_price_history(prices)
 
