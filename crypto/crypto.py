@@ -4,7 +4,7 @@ Portfolio-Directed Crypto Analysis Engine
 Modules: rebalance | pairs trading | arbitrage (Bellman-Ford) | momentum (RSI)
 """
 
-import os, sys, json, math, time, sqlite3, logging, statistics, itertools
+import os, sys, json, math, time, sqlite3, logging, statistics, itertools, urllib.parse
 import requests
 import networkx as nx
 from datetime import datetime, timezone
@@ -272,13 +272,36 @@ def _get(url: str) -> dict:
     return {}
 
 def fetch_usd_prices(coins: List[str]) -> Dict[str, float]:
-    """Returns {ticker: usd_price}"""
-    ids = [TICKER_TO_ID[c] for c in coins if c in TICKER_TO_ID]
-    data = _get(
-        f"https://api.coingecko.com/api/v3/simple/price"
-        f"?ids={','.join(ids)}&vs_currencies=usd"
-    )
-    return {COIN_MAP[cid]: data[cid]["usd"] for cid in ids if cid in data}
+    """Returns {ticker: usd_price}. Binance primary (no rate limit), CoinGecko fallback."""
+    result: Dict[str, float] = {}
+
+    # Binance: one request for all known symbols
+    binance_coins = [c for c in coins if c in BINANCE_SYMBOLS]
+    if binance_coins:
+        try:
+            syms = urllib.parse.quote(json.dumps([BINANCE_SYMBOLS[c] for c in binance_coins]))
+            data = _get(f"https://api.binance.com/api/v3/ticker/price?symbols={syms}")
+            sym_to_ticker = {v: k for k, v in BINANCE_SYMBOLS.items()}
+            for item in data:
+                coin = sym_to_ticker.get(item["symbol"])
+                if coin:
+                    result[coin] = float(item["price"])
+        except Exception as e:
+            log.warning(f"[PRICE] Binance failed: {e}")
+
+    # CoinGecko fallback for any coins not covered by Binance
+    remaining = [c for c in coins if c not in result and c in TICKER_TO_ID]
+    if remaining:
+        ids = [TICKER_TO_ID[c] for c in remaining]
+        try:
+            data = _get(f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(ids)}&vs_currencies=usd")
+            for cid in ids:
+                if cid in data:
+                    result[COIN_MAP[cid]] = data[cid]["usd"]
+        except Exception as e:
+            log.warning(f"[PRICE] CoinGecko fallback failed: {e}")
+
+    return result
 
 def build_cross_prices(coins: List[str], prices: Dict[str, float]) -> Dict:
     """Compute cross-rates from USD prices — no extra API call, fully accurate.
@@ -298,31 +321,23 @@ def build_cross_prices(coins: List[str], prices: Dict[str, float]) -> Dict:
     return result
 
 def fetch_top_coins(n: int = 10) -> List[str]:
-    """Return top n non-stablecoin tickers by market cap. Dynamically updates COIN_MAP."""
+    """Return top n non-stablecoin tickers by market cap using CoinCap (no rate limits)."""
     try:
-        data = _get(
-            "https://api.coingecko.com/api/v3/coins/markets"
-            "?vs_currency=usd&order=market_cap_desc&per_page=50&page=1&sparkline=false"
-        )
+        data = _get("https://api.coincap.io/v2/assets?limit=30")
         result = []
-        for coin in data:
-            ticker = coin["symbol"].lower()
-            # Skip stablecoins, exchange tokens, and anything with underscores (always junk)
+        for asset in data.get("data", []):
+            ticker = asset["symbol"].lower()
             if ticker in STABLECOINS or ticker in SKIP_TICKERS or "_" in ticker:
                 continue
-            cid = coin["id"]
-            # Register any unknown coin so our fetch functions can handle it
-            if cid not in COIN_MAP:
-                COIN_MAP[cid] = ticker
-                TICKER_TO_ID[ticker] = cid
             result.append(ticker)
             if len(result) >= n:
                 break
-        log.info(f"[TOP{n}] {', '.join(t.upper() for t in result)}")
-        return result
+        if result:
+            log.info(f"[TOP{n}] {', '.join(t.upper() for t in result)}")
+            return result
     except Exception as e:
-        log.warning(f"[TOP{n}] API fetch failed ({e}), using fallback list")
-        return ["btc", "eth", "xrp", "bnb", "sol", "doge", "ada", "trx", "avax", "link"]
+        log.warning(f"[TOP{n}] CoinCap failed ({e}), using fallback list")
+    return ["btc", "eth", "xrp", "bnb", "sol", "doge", "ada", "trx", "avax", "link"]
 
 
 _history_cache: Dict[str, List[float]] = {}
@@ -645,11 +660,10 @@ def main() -> None:
 
     # Fetch prices for union of market coins + portfolio coins
     all_coins = list(set(list(portfolio.keys()) + market_coins))
-    log.info("Fetching prices from CoinGecko...")
-    try:
-        prices = fetch_usd_prices(all_coins)
-    except Exception as e:
-        log.error(f"Price fetch failed: {e}")
+    log.info("Fetching current prices...")
+    prices = fetch_usd_prices(all_coins)
+    if not prices:
+        log.error("No prices fetched — check Binance/CoinGecko connectivity.")
         sys.exit(1)
 
     cross_prices = build_cross_prices(market_coins, prices)
