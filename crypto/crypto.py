@@ -8,8 +8,7 @@ import os, sys, json, math, time, sqlite3, logging, statistics, itertools
 import requests
 import networkx as nx
 from datetime import datetime, timezone
-from zoneinfo import ZoneInfo
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -17,7 +16,6 @@ load_dotenv()
 # ── CONFIG ─────────────────────────────────────────────────────────────────────
 DB_PATH      = "/var/www/data/crypto.db"
 LOG_FILE     = "/var/www/html/crypto/log.txt"
-TZ           = ZoneInfo("America/Denver")
 
 ARB_THRESHOLD            = float(os.getenv("ARBITRAGE_THRESHOLD",    "1.002"))
 PAIRS_ZSCORE_ENTRY       = float(os.getenv("PAIRS_ZSCORE_ENTRY",     "2.0"))
@@ -81,6 +79,26 @@ def get_db() -> sqlite3.Connection:
 def setup_db() -> None:
     with get_db() as conn:
         conn.execute("""
+            CREATE TABLE IF NOT EXISTS price_history (
+                id        INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp TEXT,
+                coin      TEXT,
+                price_usd REAL
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS analysis_signals (
+                id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                timestamp    TEXT,
+                strategy     TEXT,
+                coins        TEXT,
+                signal       TEXT,
+                strength     REAL,
+                expected_usd REAL,
+                details      TEXT
+            )
+        """)
+        conn.execute("""
             CREATE TABLE IF NOT EXISTS alerts (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
                 timestamp    TEXT,
@@ -122,8 +140,12 @@ def prune_db() -> None:
         )
         # Remove paper trades whose parent alert was pruned
         conn.execute("DELETE FROM paper_trades WHERE alert_id NOT IN (SELECT id FROM alerts)")
-        conn.execute("VACUUM")
         conn.commit()
+    # VACUUM must run outside any transaction
+    raw = sqlite3.connect(DB_PATH)
+    raw.isolation_level = None
+    raw.execute("VACUUM")
+    raw.close()
     log.info(
         f"[PRUNE] Removed: price_history={r1.rowcount}, signals={r2.rowcount}, alerts={r3.rowcount} rows. VACUUM done."
     )
@@ -145,16 +167,6 @@ def save_price_history(prices: Dict[str, float]) -> None:
             [(ts, coin, price) for coin, price in prices.items()],
         )
         conn.commit()
-
-def load_price_history(coin: str, days: int = 30) -> List[float]:
-    with get_db() as conn:
-        rows = conn.execute(
-            """SELECT price_usd FROM price_history
-               WHERE coin = ? AND timestamp >= datetime('now', ?)
-               ORDER BY timestamp ASC""",
-            (coin, f"-{days} days"),
-        ).fetchall()
-    return [r["price_usd"] for r in rows]
 
 def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -> int:
     actionable = [s for s in ranked if s["strength"] > ALERT_STRENGTH_THRESHOLD and s["signal"] != "hold"]
@@ -188,7 +200,7 @@ def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -
                 coin  = sig["coins"][0]
                 price = prices.get(coin, 0)
                 if price > 0:
-                    notional  = portfolio[coin]["amount"] * price * 0.25 if coin in portfolio else 1000.0
+                    notional  = portfolio[coin]["amount"] * price * 0.25 if (coin in portfolio and portfolio[coin]["amount"] > 0) else 1000.0
                     trade_amt = round(notional / price, 8)
                     conn.execute(
                         """INSERT INTO paper_trades
@@ -206,7 +218,7 @@ def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -
                 ]:
                     price = prices.get(coin, 0)
                     if price > 0:
-                        notional  = portfolio[coin]["amount"] * price * 0.25 if coin in portfolio else 1000.0
+                        notional  = portfolio[coin]["amount"] * price * 0.25 if (coin in portfolio and portfolio[coin]["amount"] > 0) else 1000.0
                         trade_amt = round(notional / price, 8)
                         conn.execute(
                             """INSERT INTO paper_trades
@@ -323,10 +335,9 @@ def rsi(prices: List[float], period: int = RSI_PERIOD) -> float:
     if len(prices) < period + 1:
         return 50.0
     deltas = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
-    gains  = [d for d in deltas if d > 0]
-    losses = [-d for d in deltas if d < 0]
-    avg_g  = sum(gains[-period:])  / period if gains  else 0.0
-    avg_l  = sum(losses[-period:]) / period if losses else 0.0
+    recent = deltas[-period:]          # last N deltas — same time window for both sides
+    avg_g  = sum(d for d in recent if d > 0)  / period
+    avg_l  = sum(-d for d in recent if d < 0) / period
     return 100.0 if avg_l == 0 else round(100 - (100 / (1 + avg_g / avg_l)), 2)
 
 def roc(prices: List[float], period: int = 10) -> float:
@@ -413,8 +424,8 @@ def analyze_pairs(portfolio: Dict, prices: Dict[str, float], market_coins: List[
             desc = f"{coin_a.upper()} undervalued vs {coin_b.upper()}"
 
         # Use portfolio value if held, else $1000 notional per side
-        val_a     = portfolio[coin_a]["amount"] * prices[coin_a] if coin_a in portfolio else 1000.0
-        val_b     = portfolio[coin_b]["amount"] * prices[coin_b] if coin_b in portfolio else 1000.0
+        val_a     = portfolio[coin_a]["amount"] * prices[coin_a] if (coin_a in portfolio and portfolio[coin_a]["amount"] > 0) else 1000.0
+        val_b     = portfolio[coin_b]["amount"] * prices[coin_b] if (coin_b in portfolio and portfolio[coin_b]["amount"] > 0) else 1000.0
         trade_usd = min(val_a, val_b) * 0.5
         strength  = min(abs(z) / 4.0, 1.0)
 
@@ -542,7 +553,7 @@ def analyze_momentum(portfolio: Dict, prices: Dict[str, float], market_coins: Li
             signal, label, strength = "hold", "neutral", 0.0
 
         # Use portfolio value if held, else $1000 notional
-        trade_usd = portfolio[coin]["amount"] * prices[coin] * 0.25 if coin in portfolio else 1000.0
+        trade_usd = portfolio[coin]["amount"] * prices[coin] * 0.25 if (coin in portfolio and portfolio[coin]["amount"] > 0) else 1000.0
 
         signals.append({
             "strategy":     "momentum",
@@ -614,6 +625,8 @@ def main() -> None:
     log.info(f"Alerts: {alert_count} new alert(s) created")
 
     for sig in ranked:
+        if sig["signal"] == "hold":
+            continue
         save_signal(
             strategy=sig["strategy"],
             coins=sig["coins"],
