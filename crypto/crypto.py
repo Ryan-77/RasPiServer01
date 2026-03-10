@@ -4,7 +4,7 @@ Portfolio-Directed Crypto Analysis Engine
 Modules: rebalance | pairs trading | arbitrage (Bellman-Ford) | momentum (RSI)
 """
 
-import os, sys, json, math, time, sqlite3, logging, statistics, itertools, urllib.parse
+import os, sys, json, math, time, sqlite3, logging, statistics, itertools
 import requests
 import networkx as nx
 from datetime import datetime, timezone
@@ -31,7 +31,7 @@ ALERTS_KEEP_DAYS         = int(os.getenv("ALERTS_KEEP_DAYS",          "90"))
 RSI_PERIOD          = 14
 PAIRS_LOOKBACK_DAYS = 30
 
-# CoinGecko id ↔ ticker mapping — broad set covering likely top-20 candidates
+# Internal id ↔ ticker mapping used by arbitrage graph (build_cross_prices / analyze_arbitrage)
 COIN_MAP: Dict[str, str] = {
     "bitcoin":            "btc",
     "ethereum":           "eth",
@@ -53,8 +53,37 @@ COIN_MAP: Dict[str, str] = {
     "matic-network":      "matic",
     "stellar":            "xlm",
     "hedera-hashgraph":   "hbar",
+    "uniswap":            "uni",
+    "cosmos":             "atom",
+    "algorand":           "algo",
+    "aave":               "aave",
+    "filecoin":           "fil",
 }
 TICKER_TO_ID = {v: k for k, v in COIN_MAP.items()}
+
+# Kraken pair mapping — US-accessible, free, no auth, ~15 req/sec public limit
+KRAKEN_PAIRS: Dict[str, str] = {
+    "btc":  "XBTUSD",   # Bitcoin   (Kraken uses XBT internally)
+    "eth":  "ETHUSD",   # Ethereum
+    "xrp":  "XRPUSD",   # XRP
+    "sol":  "SOLUSD",   # Solana
+    "doge": "DOGEUSD",  # Dogecoin
+    "ada":  "ADAUSD",   # Cardano
+    "avax": "AVAXUSD",  # Avalanche
+    "link": "LINKUSD",  # Chainlink
+    "dot":  "DOTUSD",   # Polkadot
+    "ltc":  "LTCUSD",   # Litecoin
+    "uni":  "UNIUSD",   # Uniswap
+    "atom": "ATOMUSD",  # Cosmos
+    "near": "NEARUSD",  # NEAR Protocol
+    "xlm":  "XLMUSD",   # Stellar
+    "bch":  "BCHUSD",   # Bitcoin Cash
+    "algo": "ALGOUSD",  # Algorand
+    "aave": "AAVEUSD",  # Aave
+    "fil":  "FILUSD",   # Filecoin
+    "matic":"MATICUSD", # Polygon
+    "hbar": "HBARUSD",  # Hedera
+}
 
 # Stablecoins to skip when selecting top market coins
 STABLECOINS = {"usdt", "usdc", "dai", "busd", "tusd", "fdusd", "usdp", "pyusd", "usde", "susde", "usds", "frax", "lusd", "gusd", "usdx"}
@@ -62,16 +91,6 @@ STABLECOINS = {"usdt", "usdc", "dai", "busd", "tusd", "fdusd", "usdp", "pyusd", 
 # Exchange tokens / wrapped assets / other junk to skip
 SKIP_TICKERS = {"wbt", "wbtc", "leo", "ht", "okb", "gt", "kcs", "btt", "wemix", "nexo"}
 
-# Binance Spot symbols for historical data (no rate limits, no auth)
-BINANCE_SYMBOLS: Dict[str, str] = {
-    "btc":  "BTCUSDT",  "eth":  "ETHUSDT",  "xrp":  "XRPUSDT",
-    "bnb":  "BNBUSDT",  "sol":  "SOLUSDT",  "doge": "DOGEUSDT",
-    "ada":  "ADAUSDT",  "trx":  "TRXUSDT",  "avax": "AVAXUSDT",
-    "link": "LINKUSDT", "ton":  "TONUSDT",  "sui":  "SUIUSDT",
-    "shib": "SHIBUSDT", "dot":  "DOTUSDT",  "near": "NEARUSDT",
-    "ltc":  "LTCUSDT",  "bch":  "BCHUSDT",  "matic":"MATICUSDT",
-    "xlm":  "XLMUSDT",  "hbar": "HBARUSDT",
-}
 
 # ── LOGGING ────────────────────────────────────────────────────────────────────
 logging.basicConfig(
@@ -272,40 +291,24 @@ def _get(url: str) -> dict:
     return {}
 
 def fetch_usd_prices(coins: List[str]) -> Dict[str, float]:
-    """Returns {ticker: usd_price}. Binance primary (no rate limit), CoinGecko fallback."""
-    result: Dict[str, float] = {}
-
-    # Binance: one request for all known symbols
-    binance_coins = [c for c in coins if c in BINANCE_SYMBOLS]
-    if binance_coins:
+    """Returns {ticker: usd_price} via Kraken Ticker (one request per coin)."""
+    prices = {}
+    for coin in coins:
+        pair = KRAKEN_PAIRS.get(coin)
+        if not pair:
+            continue
         try:
-            syms = urllib.parse.quote(json.dumps([BINANCE_SYMBOLS[c] for c in binance_coins]))
-            data = _get(f"https://api.binance.com/api/v3/ticker/price?symbols={syms}")
-            sym_to_ticker = {v: k for k, v in BINANCE_SYMBOLS.items()}
-            for item in data:
-                coin = sym_to_ticker.get(item["symbol"])
-                if coin:
-                    result[coin] = float(item["price"])
+            data   = _get(f"https://api.kraken.com/0/public/Ticker?pair={pair}")
+            result = data.get("result", {})
+            key    = next(iter(result))
+            prices[coin] = float(result[key]["c"][0])  # c[0] = last trade price
         except Exception as e:
-            log.warning(f"[PRICE] Binance failed: {e}")
-
-    # CoinGecko fallback for any coins not covered by Binance
-    remaining = [c for c in coins if c not in result and c in TICKER_TO_ID]
-    if remaining:
-        ids = [TICKER_TO_ID[c] for c in remaining]
-        try:
-            data = _get(f"https://api.coingecko.com/api/v3/simple/price?ids={','.join(ids)}&vs_currencies=usd")
-            for cid in ids:
-                if cid in data:
-                    result[COIN_MAP[cid]] = data[cid]["usd"]
-        except Exception as e:
-            log.warning(f"[PRICE] CoinGecko fallback failed: {e}")
-
-    return result
+            log.warning(f"[PRICE] Kraken {coin.upper()} failed: {e}")
+    return prices
 
 def build_cross_prices(coins: List[str], prices: Dict[str, float]) -> Dict:
     """Compute cross-rates from USD prices — no extra API call, fully accurate.
-    Returns {coingecko_id: {ticker: rate}} matching the shape analyze_arbitrage expects."""
+    Returns {internal_id: {ticker: rate}} matching the shape analyze_arbitrage expects."""
     result = {}
     for coin in coins:
         if coin not in prices or prices[coin] == 0:
@@ -321,14 +324,16 @@ def build_cross_prices(coins: List[str], prices: Dict[str, float]) -> Dict:
     return result
 
 def fetch_top_coins(n: int = 10) -> List[str]:
-    """Return top n non-stablecoin tickers by market cap using CoinCap (no rate limits)."""
+    """Return top n Kraken-tradable non-stablecoin tickers ranked by market cap (CoinPaprika)."""
     try:
-        data = _get("https://api.coincap.io/v2/assets?limit=30")
+        data = _get("https://api.coinpaprika.com/v1/tickers?limit=50")
         result = []
-        for asset in data.get("data", []):
+        for asset in data:
             ticker = asset["symbol"].lower()
             if ticker in STABLECOINS or ticker in SKIP_TICKERS or "_" in ticker:
                 continue
+            if ticker not in KRAKEN_PAIRS:
+                continue  # skip coins we can't fetch from Kraken
             result.append(ticker)
             if len(result) >= n:
                 break
@@ -336,48 +341,37 @@ def fetch_top_coins(n: int = 10) -> List[str]:
             log.info(f"[TOP{n}] {', '.join(t.upper() for t in result)}")
             return result
     except Exception as e:
-        log.warning(f"[TOP{n}] CoinCap failed ({e}), using fallback list")
-    return ["btc", "eth", "xrp", "bnb", "sol", "doge", "ada", "trx", "avax", "link"]
+        log.warning(f"[TOP{n}] CoinPaprika failed ({e}), using fallback list")
+    return list(KRAKEN_PAIRS.keys())[:n]
 
 
 _history_cache: Dict[str, List[float]] = {}
 
 def fetch_market_history(coin: str, days: int = 30) -> List[float]:
-    """Fetch hourly closing prices. Binance first (no rate limit), CoinGecko fallback."""
+    """Hourly closing prices from Kraken OHLC. Cached per run (720 candles = 30 days)."""
     key = f"{coin}:{days}"
     if key in _history_cache:
         return _history_cache[key]
 
-    # ── Binance (primary: free, no auth, 1200 req/min) ────────────────────────
-    symbol = BINANCE_SYMBOLS.get(coin)
-    if symbol:
-        try:
-            limit = min(days * 24, 1000)
-            data  = _get(
-                f"https://api.binance.com/api/v3/klines"
-                f"?symbol={symbol}&interval=1h&limit={limit}"
-            )
-            prices = [float(k[4]) for k in data]   # index 4 = close price
-            _history_cache[key] = prices
-            log.info(f"[HISTORY] {coin.upper()}: {len(prices)} pts over {days}d from Binance")
-            return prices
-        except Exception as e:
-            log.warning(f"[HISTORY] {coin.upper()} Binance failed ({e}), trying CoinGecko")
-
-    # ── CoinGecko (fallback for coins not on Binance) ─────────────────────────
-    cid = TICKER_TO_ID.get(coin)
-    if not cid:
+    pair = KRAKEN_PAIRS.get(coin)
+    if not pair:
         _history_cache[key] = []
         return []
     try:
-        data   = _get(f"https://api.coingecko.com/api/v3/coins/{cid}/market_chart?vs_currency=usd&days={days}")
-        prices = [p[1] for p in data.get("prices", [])]
+        data     = _get(f"https://api.kraken.com/0/public/OHLC?pair={pair}&interval=60")
+        result   = data.get("result", {})
+        ohlc_key = next((k for k in result if k != "last"), None)
+        if not ohlc_key:
+            raise ValueError("No OHLC data in response")
+        candles  = result[ohlc_key]
+        prices   = [float(c[4]) for c in candles]   # index 4 = close
+        prices   = prices[-(days * 24):]             # trim to requested window
         _history_cache[key] = prices
-        log.info(f"[HISTORY] {coin.upper()}: {len(prices)} pts over {days}d from CoinGecko")
+        log.info(f"[HISTORY] {coin.upper()}: {len(prices)} pts over {days}d from Kraken")
         return prices
     except Exception as e:
-        log.warning(f"[HISTORY] {coin.upper()} CoinGecko failed ({e})")
-        _history_cache[key] = []   # cache the failure — don't retry this run
+        log.warning(f"[HISTORY] {coin.upper()} Kraken failed: {e}")
+        _history_cache[key] = []
         return []
 
 
@@ -663,7 +657,7 @@ def main() -> None:
     log.info("Fetching current prices...")
     prices = fetch_usd_prices(all_coins)
     if not prices:
-        log.error("No prices fetched — check Binance/CoinGecko connectivity.")
+        log.error("No prices fetched — check Kraken/CoinPaprika connectivity.")
         sys.exit(1)
 
     cross_prices = build_cross_prices(market_coins, prices)
