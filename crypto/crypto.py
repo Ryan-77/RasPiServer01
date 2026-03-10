@@ -18,9 +18,9 @@ DB_PATH      = "/var/www/data/crypto.db"
 LOG_FILE     = "/var/www/html/crypto/log.txt"
 
 ARB_THRESHOLD            = float(os.getenv("ARBITRAGE_THRESHOLD",    "1.002"))
-PAIRS_ZSCORE_ENTRY       = float(os.getenv("PAIRS_ZSCORE_ENTRY",     "2.0"))
-MOMENTUM_RSI_HIGH        = float(os.getenv("MOMENTUM_RSI_HIGH",      "70.0"))
-MOMENTUM_RSI_LOW         = float(os.getenv("MOMENTUM_RSI_LOW",       "30.0"))
+PAIRS_ZSCORE_ENTRY       = float(os.getenv("PAIRS_ZSCORE_ENTRY",     "1.5"))   # z>1.5 SD = meaningful deviation
+MOMENTUM_RSI_HIGH        = float(os.getenv("MOMENTUM_RSI_HIGH",      "65.0"))  # >65 overbought; need RSI~72 to clear alert threshold
+MOMENTUM_RSI_LOW         = float(os.getenv("MOMENTUM_RSI_LOW",       "35.0"))  # <35 oversold
 REBALANCE_DRIFT          = float(os.getenv("REBALANCE_DRIFT_PCT",    "5.0"))
 FEE_RATE                 = float(os.getenv("FEE_RATE",               "0.001"))
 ALERT_STRENGTH_THRESHOLD = float(os.getenv("ALERT_STRENGTH_THRESHOLD","0.2"))
@@ -169,6 +169,12 @@ def setup_db() -> None:
                 log.info(f"[DB] Migrated paper_trades: added column {col}")
             except Exception:
                 pass  # Column already exists
+        # Drop legacy tables no longer used
+        try:
+            conn.execute("DROP TABLE IF EXISTS arbitrage_results")
+            conn.commit()
+        except Exception:
+            pass
 
 def prune_db() -> None:
     """Delete old rows to keep the DB small on the Pi."""
@@ -182,8 +188,11 @@ def prune_db() -> None:
         r3 = conn.execute(
             f"DELETE FROM alerts WHERE timestamp < datetime('now', '-{ALERTS_KEEP_DAYS} days')"
         )
-        # Remove paper trades whose parent alert was pruned
-        conn.execute("DELETE FROM paper_trades WHERE alert_id NOT IN (SELECT id FROM alerts)")
+        # Note: paper_trades are NOT cascade-deleted — closed trade history is retained indefinitely
+        # Only prune closed paper trades older than 180 days to prevent unbounded growth
+        conn.execute(
+            "DELETE FROM paper_trades WHERE status='closed' AND closed_at < datetime('now', '-180 days')"
+        )
         conn.commit()
     # VACUUM must run outside any transaction
     raw = sqlite3.connect(DB_PATH)
@@ -420,12 +429,19 @@ def zscore(series: List[float]) -> float:
     return 0.0 if std == 0 else (series[-1] - mean) / std
 
 def rsi(prices: List[float], period: int = RSI_PERIOD) -> float:
+    """Wilder's Smoothed RSI — matches TradingView / most charting platforms."""
     if len(prices) < period + 1:
         return 50.0
     deltas = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
-    recent = deltas[-period:]          # last N deltas — same time window for both sides
-    avg_g  = sum(d for d in recent if d > 0)  / period
-    avg_l  = sum(-d for d in recent if d < 0) / period
+    gains  = [max(d, 0.0) for d in deltas]
+    losses = [max(-d, 0.0) for d in deltas]
+    # Seed with simple average of the first period
+    avg_g = sum(gains[:period]) / period
+    avg_l = sum(losses[:period]) / period
+    # Wilder's exponential smoothing for remaining candles
+    for g, l in zip(gains[period:], losses[period:]):
+        avg_g = (avg_g * (period - 1) + g) / period
+        avg_l = (avg_l * (period - 1) + l) / period
     return 100.0 if avg_l == 0 else round(100 - (100 / (1 + avg_g / avg_l)), 2)
 
 def roc(prices: List[float], period: int = 10) -> float:
@@ -511,10 +527,12 @@ def analyze_pairs(portfolio: Dict, prices: Dict[str, float], market_coins: List[
             action_a, action_b = "buy", "sell"
             desc = f"{coin_a.upper()} undervalued vs {coin_b.upper()}"
 
-        # Use portfolio value if held, else $1000 notional per side
-        val_a     = portfolio[coin_a]["amount"] * prices[coin_a] if (coin_a in portfolio and portfolio[coin_a]["amount"] > 0) else 1000.0
-        val_b     = portfolio[coin_b]["amount"] * prices[coin_b] if (coin_b in portfolio and portfolio[coin_b]["amount"] > 0) else 1000.0
+        # Use portfolio value if held, else BASE_PAPER_TRADE notional per side
+        val_a     = portfolio[coin_a]["amount"] * prices[coin_a] if (coin_a in portfolio and portfolio[coin_a]["amount"] > 0) else BASE_PAPER_TRADE
+        val_b     = portfolio[coin_b]["amount"] * prices[coin_b] if (coin_b in portfolio and portfolio[coin_b]["amount"] > 0) else BASE_PAPER_TRADE
         trade_usd = min(val_a, val_b) * 0.5
+        # Strength proportional to z-score: z=1.5→0.375, z=2.0→0.5, z=4.0→1.0
+        # At z=PAIRS_ZSCORE_ENTRY (1.5) strength=0.375 which clears the 0.2 alert threshold
         strength  = min(abs(z) / 4.0, 1.0)
 
         signals.append({
@@ -617,6 +635,18 @@ def analyze_arbitrage(portfolio: Dict, cross_prices: Dict,
 
 # ── MODULE 4: MOMENTUM (RSI + ROC) ────────────────────────────────────────────
 def analyze_momentum(portfolio: Dict, prices: Dict[str, float], market_coins: List[str]) -> List[dict]:
+    """
+    Generates buy/sell signals from Wilder's RSI + rate-of-change confirmation.
+
+    Thresholds:
+      - RSI > MOMENTUM_RSI_HIGH (65) → overbought → sell candidate
+      - RSI < MOMENTUM_RSI_LOW  (35) → oversold   → buy  candidate
+    Strength scales from 0.0 at the threshold up to 1.0 at extremes.
+    ROC agreement adds up to +0.25 extra strength (e.g. falling price confirms sell).
+    An alert fires only when strength > ALERT_STRENGTH_THRESHOLD (0.2), meaning:
+      - Sell needs RSI ≈ 72+ (or RSI 69+ with strong negative ROC)
+      - Buy  needs RSI ≈ 28- (or RSI 31- with strong positive ROC)
+    """
     signals = []
 
     for coin in market_coins:
@@ -628,20 +658,31 @@ def analyze_momentum(portfolio: Dict, prices: Dict[str, float], market_coins: Li
             log.info(f"[MOMENTUM] {coin.upper()}: insufficient history ({len(history)} pts), skipping")
             continue
 
-        r   = rsi(history, RSI_PERIOD)
-        roc_val = roc(history, 10)
+        r       = rsi(history, RSI_PERIOD)
+        roc_val = roc(history, 10)   # % change over last 10 hours
 
         if r >= MOMENTUM_RSI_HIGH:
             signal, label = "sell", "overbought"
-            strength = min((r - MOMENTUM_RSI_HIGH) / 30.0, 1.0)
+            # Scales 0.0 at RSI=65 → 1.0 at RSI=100
+            rsi_strength = (r - MOMENTUM_RSI_HIGH) / (100.0 - MOMENTUM_RSI_HIGH)
+            # ROC confirmation: falling price (-roc_val > 0) boosts sell confidence
+            roc_confirm  = max(-roc_val, 0.0) / 10.0   # 10% drop = 1.0 confirm
+            strength     = min(rsi_strength + roc_confirm * 0.25, 1.0)
+
         elif r <= MOMENTUM_RSI_LOW:
             signal, label = "buy", "oversold"
-            strength = min((MOMENTUM_RSI_LOW - r) / 30.0, 1.0)
+            # Scales 0.0 at RSI=35 → 1.0 at RSI=0
+            rsi_strength = (MOMENTUM_RSI_LOW - r) / MOMENTUM_RSI_LOW
+            # ROC confirmation: rising price (+roc_val > 0) boosts buy confidence
+            roc_confirm  = max(roc_val, 0.0) / 10.0
+            strength     = min(rsi_strength + roc_confirm * 0.25, 1.0)
+
         else:
             signal, label, strength = "hold", "neutral", 0.0
 
-        # Use portfolio value if held, else $1000 notional
-        trade_usd = portfolio[coin]["amount"] * prices[coin] * 0.25 if (coin in portfolio and portfolio[coin]["amount"] > 0) else 1000.0
+        trade_usd = (portfolio[coin]["amount"] * prices[coin] * 0.25
+                     if (coin in portfolio and portfolio[coin]["amount"] > 0)
+                     else BASE_PAPER_TRADE)
 
         signals.append({
             "strategy":     "momentum",
@@ -653,11 +694,13 @@ def analyze_momentum(portfolio: Dict, prices: Dict[str, float], market_coins: Li
                 "rsi":         r,
                 "roc_10":      roc_val,
                 "label":       label,
+                "rsi_high":    MOMENTUM_RSI_HIGH,
+                "rsi_low":     MOMENTUM_RSI_LOW,
                 "price_usd":   prices[coin],
                 "history_pts": len(history),
             },
         })
-        log.info(f"[MOMENTUM] {coin.upper()}: RSI={r} ROC={roc_val:+.2f}% → {signal} ({label})")
+        log.info(f"[MOMENTUM] {coin.upper()}: RSI={r:.1f} ROC={roc_val:+.2f}% → {signal} ({label}) strength={strength:.3f}")
 
     return signals
 

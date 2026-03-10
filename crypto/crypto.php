@@ -7,7 +7,6 @@ session_start();
 $DB_FILE   = '/var/www/data/crypto.db';
 $LOG_FILE  = '/var/www/html/crypto/log.txt';
 $LOG_LINES = 200;
-$PAGE_SIZE = 25;
 $AUTH_PASS = 'changeme';  // ← change this
 
 $SUPPORTED_COINS = [
@@ -158,8 +157,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ══════════════════════════════════════════════════════════════
 //  VIEW DATA
 // ══════════════════════════════════════════════════════════════
-$view = in_array($_GET['view'] ?? '', ['portfolio','analysis','log','db','alerts','trades']) ? $_GET['view'] : 'analysis';
-$page = max(1, (int)($_GET['page'] ?? 1));
+$view = in_array($_GET['view'] ?? '', ['portfolio','analysis','log','alerts','trades']) ? $_GET['view'] : 'analysis';
 
 // Portfolio
 $portfolio = [];
@@ -168,15 +166,28 @@ if (file_exists($DB_FILE)) {
     catch (Exception $e) {}
 }
 
-// Latest prices per coin (from price_history)
+// Latest prices — portfolio coins first, then any additional coins in paper trades
 $latestPrices = [];
-foreach ($portfolio as $row) {
+if (file_exists($DB_FILE)) {
     try {
-        $r = db()->prepare("SELECT price_usd FROM price_history WHERE coin=? ORDER BY timestamp DESC LIMIT 1");
-        $r->execute([$row['coin']]);
-        $p = $r->fetchColumn();
-        if ($p !== false) $latestPrices[$row['coin']] = (float)$p;
-    } catch (Exception $e) {}
+        // Single query: latest price per coin across all tracked coins
+        $rows = db()->query("
+            SELECT coin, price_usd FROM price_history
+            WHERE (coin, timestamp) IN (
+                SELECT coin, MAX(timestamp) FROM price_history GROUP BY coin
+            )
+        ")->fetchAll(PDO::FETCH_ASSOC);
+        foreach ($rows as $r) $latestPrices[$r['coin']] = (float)$r['price_usd'];
+    } catch (Exception $e) {
+        // Fallback: query per portfolio coin (in case of SQLite version issues)
+        foreach ($portfolio as $row) {
+            try {
+                $r = db()->prepare("SELECT price_usd FROM price_history WHERE coin=? ORDER BY timestamp DESC LIMIT 1");
+                $r->execute([$row['coin']]); $p = $r->fetchColumn();
+                if ($p !== false) $latestPrices[$row['coin']] = (float)$p;
+            } catch (Exception $e2) {}
+        }
+    }
 }
 
 // Portfolio totals
@@ -199,17 +210,6 @@ if ($view === 'log') {
     else { $logContent = tailFile($LOG_FILE, $LOG_LINES); if ($logContent === false) $logError = 'Cannot read log.'; }
 }
 
-// Raw DB
-$dbRows = []; $dbCols = []; $dbTotal = 0; $dbError = null;
-if ($view === 'db' && file_exists($DB_FILE)) {
-    try {
-        $dbTotal  = (int)db()->query("SELECT COUNT(*) FROM arbitrage_results")->fetchColumn();
-        $offset   = ($page-1) * $PAGE_SIZE;
-        $dbRows   = db()->query("SELECT * FROM arbitrage_results ORDER BY timestamp DESC LIMIT $PAGE_SIZE OFFSET $offset")->fetchAll(PDO::FETCH_ASSOC);
-        if ($dbRows) $dbCols = array_keys($dbRows[0]);
-    } catch (Exception $e) { $dbError = h($e->getMessage()); }
-}
-$totalPages = max(1, (int)ceil($dbTotal / $PAGE_SIZE));
 
 // Alerts
 $unseenCount = 0; $alerts = []; $alertError = null;
@@ -615,7 +615,6 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
   </a>
   <a href="<?= buildUrl(['view'=>'portfolio']) ?>" class="<?= $view==='portfolio'?'active':'' ?>">💼 PORTFOLIO</a>
   <a href="<?= buildUrl(['view'=>'log']) ?>" class="<?= $view==='log'?'active':'' ?>">📋 LOG</a>
-  <a href="<?= buildUrl(['view'=>'db']) ?>" class="<?= $view==='db'?'active':'' ?>">🗄 RAW DB</a>
   <div class="nav-sp"></div>
   <span style="font-size:.75rem;color:var(--t3)">cron: */5 * * * *</span>
 </nav>
@@ -1079,47 +1078,6 @@ function tradeRow($t, $showClose = false) {
   <?php endif ?>
 </div>
 
-<!-- ══ RAW DB VIEW ════════════════════════════════════════════════════════════ -->
-<?php elseif ($view === 'db'): ?>
-<div class="panel">
-  <div class="ph">
-    <div class="ph-t">🗄 RAW ARBITRAGE RESULTS — <?= number_format($dbTotal) ?> RECORDS</div>
-    <div class="ph-m">UPDATED: <?= date('H:i:s') ?></div>
-  </div>
-  <?php if ($dbError): ?>
-    <div class="err-box">⚠ <?= $dbError ?></div>
-  <?php elseif (empty($dbRows)): ?>
-    <div class="state"><div class="state-i">🗄</div><div class="state-t">NO RECORDS</div></div>
-  <?php else: ?>
-  <div class="tbl-wrap">
-    <table>
-      <thead><tr><?php foreach ($dbCols as $c) echo '<th>'.h(strtoupper($c)).'</th>'; ?></tr></thead>
-      <tbody>
-        <?php foreach ($dbRows as $row): ?>
-        <tr><?php foreach ($row as $v) echo '<td>'.h($v).'</td>'; ?></tr>
-        <?php endforeach; ?>
-      </tbody>
-    </table>
-  </div>
-  <?php if ($totalPages > 1): ?>
-  <div class="pgn">
-    <div class="pgn-info">
-      <?= number_format(($page-1)*$PAGE_SIZE+1) ?>–<?= number_format(min($page*$PAGE_SIZE,$dbTotal)) ?>
-      of <?= number_format($dbTotal) ?>
-    </div>
-    <div class="pgn-links">
-      <?php if ($page>1): ?><a href="<?= buildUrl(['page'=>1]) ?>">«</a><a href="<?= buildUrl(['page'=>$page-1]) ?>">‹</a>
-      <?php else: ?><span class="dis">«</span><span class="dis">‹</span><?php endif; ?>
-      <?php for ($i=max(1,$page-2);$i<=min($totalPages,$page+2);$i++):
-        echo $i===$page ? "<span class='cur'>$i</span>" : '<a href="'.buildUrl(['page'=>$i]).'">'.$i.'</a>';
-      endfor; ?>
-      <?php if ($page<$totalPages): ?><a href="<?= buildUrl(['page'=>$page+1]) ?>">›</a><a href="<?= buildUrl(['page'=>$totalPages]) ?>">»</a>
-      <?php else: ?><span class="dis">›</span><span class="dis">»</span><?php endif; ?>
-    </div>
-  </div>
-  <?php endif; ?>
-  <?php endif; ?>
-</div>
 <?php endif; ?>
 
 <div class="footer">Crypto Dashboard &nbsp;·&nbsp; Raspberry Pi &nbsp;·&nbsp; <?= date('Y') ?></div>
