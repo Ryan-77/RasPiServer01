@@ -114,6 +114,42 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         db()->exec("UPDATE alerts SET status='seen' WHERE status='new'");
         $_SESSION['flash'] = ['type'=>'ok','msg'=>'All alerts cleared.'];
         header('Location: ' . buildUrl(['view'=>'alerts'])); exit;
+
+    } elseif ($action === 'close_trade') {
+        $id   = (int)($_POST['trade_id'] ?? 0);
+        $coin = strtolower(trim($_POST['coin'] ?? ''));
+        if ($id > 0 && $coin) {
+            $stmt = db()->prepare("SELECT price_usd FROM price_history WHERE coin=? ORDER BY timestamp DESC LIMIT 1");
+            $stmt->execute([$coin]);
+            $exitPrice = $stmt->fetchColumn();
+            if ($exitPrice !== false) {
+                db()->prepare("UPDATE paper_trades SET status='closed', exit_price=?, closed_at=? WHERE id=? AND status='open'")
+                   ->execute([$exitPrice, date('c'), $id]);
+                $_SESSION['flash'] = ['type'=>'ok','msg'=>'Trade closed at $' . number_format((float)$exitPrice, 2) . '.'];
+            }
+        }
+        header('Location: ' . buildUrl(['view'=>'trades'])); exit;
+
+    } elseif ($action === 'close_all_trades') {
+        $open = db()->query("SELECT id, coin FROM paper_trades WHERE status='open'")->fetchAll(PDO::FETCH_ASSOC);
+        $now  = date('c'); $closedCount = 0;
+        foreach ($open as $t) {
+            $stmt = db()->prepare("SELECT price_usd FROM price_history WHERE coin=? ORDER BY timestamp DESC LIMIT 1");
+            $stmt->execute([$t['coin']]);
+            $p = $stmt->fetchColumn();
+            if ($p !== false) {
+                db()->prepare("UPDATE paper_trades SET status='closed', exit_price=?, closed_at=? WHERE id=?")
+                   ->execute([$p, $now, $t['id']]);
+                $closedCount++;
+            }
+        }
+        $_SESSION['flash'] = ['type'=>'ok','msg'=>"Closed $closedCount trade(s)."];
+        header('Location: ' . buildUrl(['view'=>'trades'])); exit;
+
+    } elseif ($action === 'reset_trades') {
+        db()->exec("DELETE FROM paper_trades");
+        $_SESSION['flash'] = ['type'=>'ok','msg'=>'Paper trading history reset.'];
+        header('Location: ' . buildUrl(['view'=>'trades'])); exit;
     }
 
     header('Location: ' . buildUrl(['view'=>'portfolio'])); exit;
@@ -122,7 +158,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 // ══════════════════════════════════════════════════════════════
 //  VIEW DATA
 // ══════════════════════════════════════════════════════════════
-$view = in_array($_GET['view'] ?? '', ['portfolio','analysis','log','db','alerts']) ? $_GET['view'] : 'analysis';
+$view = in_array($_GET['view'] ?? '', ['portfolio','analysis','log','db','alerts','trades']) ? $_GET['view'] : 'analysis';
 $page = max(1, (int)($_GET['page'] ?? 1));
 
 // Portfolio
@@ -186,20 +222,38 @@ if (file_exists($DB_FILE)) {
     } catch (Exception $e) { $alertError = h($e->getMessage()); }
 }
 
-// Paper trades with live P&L
-$paperTrades = []; $paperPnl = 0.0;
+// Paper trades with live P&L (open) or locked P&L (closed), joined with alerts for strategy
+$paperTrades = []; $openTrades = []; $closedTrades = [];
+$paperPnl = 0.0; $openCount = 0;
 if (file_exists($DB_FILE)) {
     try {
-        $rows = db()->query("SELECT * FROM paper_trades ORDER BY timestamp DESC")->fetchAll(PDO::FETCH_ASSOC);
+        $rows = db()->query("
+            SELECT pt.*, a.strategy, a.signal as alert_signal
+            FROM paper_trades pt
+            LEFT JOIN alerts a ON pt.alert_id = a.id
+            ORDER BY pt.timestamp DESC
+        ")->fetchAll(PDO::FETCH_ASSOC);
         foreach ($rows as &$t) {
-            $cur             = $latestPrices[$t['coin']] ?? $t['entry_price'];
-            $t['current_price'] = $cur;
-            $pnl             = $t['action'] === 'buy'
-                ? ($cur - $t['entry_price']) * $t['amount_coin']
-                : ($t['entry_price'] - $cur) * $t['amount_coin'];
-            $t['pnl_usd']    = round($pnl, 2);
-            $t['pnl_pct']    = $t['amount_usd'] > 0 ? round(($pnl / $t['amount_usd']) * 100, 2) : 0;
-            $paperPnl       += $pnl;
+            if ($t['status'] === 'closed' && $t['exit_price'] !== null) {
+                // Locked P&L from recorded exit price
+                $pnl = $t['action'] === 'buy'
+                    ? ((float)$t['exit_price'] - (float)$t['entry_price']) * (float)$t['amount_coin']
+                    : ((float)$t['entry_price'] - (float)$t['exit_price']) * (float)$t['amount_coin'];
+                $t['current_price'] = (float)$t['exit_price'];
+            } else {
+                // Live P&L for open trades
+                $cur = $latestPrices[$t['coin']] ?? (float)$t['entry_price'];
+                $t['current_price'] = $cur;
+                $pnl = $t['action'] === 'buy'
+                    ? ($cur - (float)$t['entry_price']) * (float)$t['amount_coin']
+                    : ((float)$t['entry_price'] - $cur) * (float)$t['amount_coin'];
+                $openCount++;
+            }
+            $t['pnl_usd'] = round($pnl, 2);
+            $t['pnl_pct'] = (float)$t['amount_usd'] > 0 ? round(($pnl / (float)$t['amount_usd']) * 100, 2) : 0;
+            $paperPnl    += $pnl;
+            if (($t['status'] ?? 'open') === 'open') $openTrades[]   = $t;
+            else                                      $closedTrades[] = $t;
         }
         unset($t);
         $paperTrades = $rows;
@@ -237,22 +291,22 @@ function renderLogin($err=false) { ?>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{min-height:100vh;display:flex;align-items:center;justify-content:center;
-     background:#f5f4ef;font-family:system-ui,-apple-system,'Segoe UI',sans-serif}
-.card{width:380px;padding:48px 40px;background:#fff;border:1px solid #e8e6e0;
-      border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.08)}
-.logo{text-align:center;font-size:1.4rem;font-weight:700;color:#1c1917;margin-bottom:6px;letter-spacing:-.01em}
-.sub{text-align:center;font-size:.82rem;color:#a8a29e;margin-bottom:36px}
-.err{background:rgba(220,38,38,.06);border:1px solid rgba(220,38,38,.2);color:#dc2626;
+     background:#1a1918;font-family:system-ui,-apple-system,'Segoe UI',sans-serif}
+.card{width:380px;padding:48px 40px;background:#242220;border:1px solid #3d3b38;
+      border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.4)}
+.logo{text-align:center;font-size:1.4rem;font-weight:700;color:#f0ede8;margin-bottom:6px;letter-spacing:-.01em}
+.sub{text-align:center;font-size:.82rem;color:#6b6966;margin-bottom:36px}
+.err{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);color:#f87171;
      padding:11px;border-radius:8px;font-size:.82rem;text-align:center;margin-bottom:18px}
-label{font-size:.82rem;color:#78716c;font-weight:500;display:block;margin-bottom:6px}
-input[type=password]{width:100%;padding:10px 14px;background:#faf9f5;border:1px solid #e8e6e0;
-     border-radius:8px;color:#1c1917;font-family:inherit;font-size:.9rem;outline:none;transition:border-color .2s}
-input[type=password]:focus{border-color:#c96442;box-shadow:0 0 0 3px rgba(201,100,66,.12)}
+label{font-size:.82rem;color:#a8a29e;font-weight:500;display:block;margin-bottom:6px}
+input[type=password]{width:100%;padding:10px 14px;background:#1a1918;border:1px solid #3d3b38;
+     border-radius:8px;color:#f0ede8;font-family:inherit;font-size:.9rem;outline:none;transition:border-color .2s}
+input[type=password]:focus{border-color:#c96442;box-shadow:0 0 0 3px rgba(201,100,66,.2)}
 button{width:100%;margin-top:12px;padding:12px;background:#c96442;
        border:none;border-radius:8px;color:#fff;font-family:inherit;font-size:.88rem;
        font-weight:600;cursor:pointer;transition:opacity .2s}
 button:hover{opacity:.88}
-.hint{text-align:center;margin-top:20px;font-size:.75rem;color:#a8a29e}
+.hint{text-align:center;margin-top:20px;font-size:.75rem;color:#6b6966}
 </style></head><body>
 <div class="card">
   <div class="logo">Crypto Dashboard</div>
@@ -275,12 +329,12 @@ button:hover{opacity:.88}
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:   #f5f4ef; --s1:#ffffff; --s2:#faf9f5; --s3:#f0efe9;
-  --b1:   #e8e6e0; --b2:#d4d1c8;
-  --ac:   #c96442; --ac-d:rgba(201,100,66,.1);
-  --gn:   #16a34a; --gn-d:rgba(22,163,74,.1);
-  --rd:   #dc2626; --yw:#d97706; --pu:#7c3aed; --or:#ea580c;
-  --t1:   #1c1917; --t2:#78716c; --t3:#a8a29e;
+  --bg:   #1a1918; --s1:#242220; --s2:#2c2a28; --s3:#333130;
+  --b1:   #3d3b38; --b2:#4a4845;
+  --ac:   #c96442; --ac-d:rgba(201,100,66,.15);
+  --gn:   #4ade80; --gn-d:rgba(74,222,128,.12);
+  --rd:   #f87171; --yw:#fbbf24; --pu:#a78bfa; --or:#fb923c;
+  --t1:   #f0ede8; --t2:#a8a29e; --t3:#6b6966;
   --mono: 'JetBrains Mono','Fira Code','Courier New',monospace;
   --font: system-ui,-apple-system,'Segoe UI',sans-serif;
   --r:    12px;
@@ -546,7 +600,7 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
     <div class="pstat-v" style="color:<?= $paperPnl > 0 ? 'var(--gn)' : ($paperPnl < 0 ? 'var(--rd)' : 'var(--t3)') ?>">
       <?= $paperPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($paperPnl), 2) ?>
     </div>
-    <div class="pstat-s"><?= count($paperTrades) ?> trade<?= count($paperTrades) !== 1 ? 's' : '' ?> tracked · <?= $unseenCount ?> new alert<?= $unseenCount !== 1 ? 's' : '' ?></div>
+    <div class="pstat-s"><?= $openCount ?> open · <?= count($closedTrades) ?> closed · <?= $unseenCount ?> new alert<?= $unseenCount !== 1 ? 's' : '' ?></div>
   </div>
 </div>
 
@@ -555,6 +609,9 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
   <a href="<?= buildUrl(['view'=>'analysis']) ?>" class="<?= $view==='analysis'?'active':'' ?>">📊 ANALYSIS</a>
   <a href="<?= buildUrl(['view'=>'alerts']) ?>" class="<?= $view==='alerts'?'active':'' ?>">
     🔔 ALERTS<?php if ($unseenCount > 0): ?><span class="badge"><?= $unseenCount ?></span><?php endif ?>
+  </a>
+  <a href="<?= buildUrl(['view'=>'trades']) ?>" class="<?= $view==='trades'?'active':'' ?>">
+    📈 TRADES<?php if ($openCount > 0): ?><span class="badge" style="background:var(--gn);color:#000"><?= $openCount ?></span><?php endif ?>
   </a>
   <a href="<?= buildUrl(['view'=>'portfolio']) ?>" class="<?= $view==='portfolio'?'active':'' ?>">💼 PORTFOLIO</a>
   <a href="<?= buildUrl(['view'=>'log']) ?>" class="<?= $view==='log'?'active':'' ?>">📋 LOG</a>
@@ -880,42 +937,147 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
   <?php endif ?>
 </div>
 
-<!-- Paper Trade Performance -->
 <?php if (!empty($paperTrades)): ?>
-<div class="panel" style="margin-top:18px">
+<div style="margin-top:14px;padding:12px 16px;background:var(--s2);border:1px solid var(--b1);border-radius:var(--r);display:flex;align-items:center;justify-content:space-between">
+  <span style="font-size:.84rem;color:var(--t2)">
+    <?= $openCount ?> open trade<?= $openCount !== 1 ? 's' : '' ?> · <?= count($closedTrades) ?> closed ·
+    Total P&amp;L: <strong style="color:<?= $paperPnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>"><?= $paperPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($paperPnl), 2) ?></strong>
+  </span>
+  <a href="<?= buildUrl(['view'=>'trades']) ?>" class="btn" style="font-size:.78rem;padding:6px 14px">📈 View Trades →</a>
+</div>
+<?php endif ?>
+
+<!-- ══ TRADES VIEW ════════════════════════════════════════════════════════════ -->
+<?php elseif ($view === 'trades'): ?>
+
+<?php
+// P&L breakdown by strategy for the summary bar
+$pnlByStrategy = [];
+foreach ($paperTrades as $t) {
+    $strat = $t['strategy'] ?? 'unknown';
+    if (!isset($pnlByStrategy[$strat])) $pnlByStrategy[$strat] = 0.0;
+    $pnlByStrategy[$strat] += $t['pnl_usd'];
+}
+
+function tradeRow($t, $showClose = false) {
+    $pnlClass  = $t['pnl_usd'] > 0 ? 'pnl-pos' : ($t['pnl_usd'] < 0 ? 'pnl-neg' : 'pnl-zero');
+    $actColor  = $t['action'] === 'buy' ? 'var(--gn)' : 'var(--rd)';
+    $strat     = $t['strategy'] ?? 'unknown';
+    $stratColor = strategyColor($strat);
+    $openTs    = strtotime($t['timestamp']);
+    $closeTs   = $t['closed_at'] ? strtotime($t['closed_at']) : time();
+    $dur       = $closeTs - $openTs;
+    $durLabel  = $dur < 3600 ? round($dur/60).'m' : ($dur < 86400 ? round($dur/3600).'h' : round($dur/86400).'d');
+    $priceLabel = $t['status'] === 'closed' ? 'EXIT PRICE' : 'CURRENT';
+    ?>
+    <tr>
+      <td>
+        <span style="font-size:.68rem;padding:2px 7px;border-radius:4px;background:<?= $stratColor ?>22;color:<?= $stratColor ?>;font-weight:600;letter-spacing:.04em"><?= strtoupper(h($strat)) ?></span>
+      </td>
+      <td style="font-weight:700;color:var(--ac)"><?= strtoupper(h($t['coin'])) ?></td>
+      <td style="color:<?= $actColor ?>;font-weight:600;font-size:.78rem"><?= strtoupper(h($t['action'])) ?></td>
+      <td class="num">$<?= number_format((float)$t['entry_price'], 2) ?></td>
+      <td class="num"><?= $t['status'] === 'closed' ? '<span style="color:var(--t3);font-size:.72rem">EXIT&nbsp;</span>' : '' ?>$<?= number_format((float)$t['current_price'], 2) ?></td>
+      <td class="num"><?= number_format((float)$t['amount_usd'], 0) ?></td>
+      <td class="num <?= $pnlClass ?>"><?= $t['pnl_usd'] >= 0 ? '+' : '' ?>$<?= number_format(abs($t['pnl_usd']), 2) ?></td>
+      <td class="num <?= $pnlClass ?>" style="font-size:.78rem"><?= $t['pnl_pct'] >= 0 ? '+' : '' ?><?= $t['pnl_pct'] ?>%</td>
+      <td class="muted" style="font-size:.72rem"><?= $durLabel ?></td>
+      <?php if ($showClose): ?>
+      <td>
+        <form method="post" style="display:inline">
+          <input type="hidden" name="_csrf" value="<?= csrf() ?>">
+          <input type="hidden" name="action" value="close_trade">
+          <input type="hidden" name="trade_id" value="<?= (int)$t['id'] ?>">
+          <input type="hidden" name="coin" value="<?= h($t['coin']) ?>">
+          <button type="submit" style="font-size:.72rem;padding:3px 10px;background:var(--s3);border:1px solid var(--b1);border-radius:5px;color:var(--t2);cursor:pointer;font-family:inherit">Close</button>
+        </form>
+      </td>
+      <?php else: ?>
+      <td class="muted" style="font-size:.72rem"><?= $t['closed_at'] ? date('d M H:i', strtotime($t['closed_at'])) : '—' ?></td>
+      <?php endif ?>
+    </tr>
+    <?php
+}
+?>
+
+<!-- Summary bar -->
+<div class="panel">
   <div class="ph">
-    <div class="ph-t">📈 PAPER TRADE PERFORMANCE</div>
-    <div class="ph-m" style="color:<?= $paperPnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>;font-weight:700">
-      TOTAL P&amp;L: <?= $paperPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($paperPnl), 2) ?>
+    <div class="ph-t">📈 Paper Trades</div>
+    <div style="display:flex;gap:8px;align-items:center">
+      <span style="font-size:.82rem;font-weight:700;color:<?= $paperPnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>">
+        Total P&L: <?= $paperPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($paperPnl), 2) ?>
+      </span>
+      <?php if (!empty($paperTrades)): ?>
+      <form method="post" style="display:inline" onsubmit="return confirm('Reset all paper trade history?')">
+        <input type="hidden" name="_csrf" value="<?= csrf() ?>">
+        <input type="hidden" name="action" value="reset_trades">
+        <button type="submit" style="font-size:.75rem;padding:5px 12px;background:transparent;border:1px solid var(--rd);border-radius:6px;color:var(--rd);cursor:pointer;font-family:inherit">↺ Reset</button>
+      </form>
+      <?php endif ?>
     </div>
+  </div>
+
+  <?php if (!empty($pnlByStrategy)): ?>
+  <div style="display:flex;gap:10px;flex-wrap:wrap;padding:12px 16px 0">
+    <?php foreach ($pnlByStrategy as $strat => $spnl): $sc = strategyColor($strat); ?>
+    <div style="padding:8px 14px;background:var(--s2);border:1px solid var(--b1);border-radius:8px;min-width:130px">
+      <div style="font-size:.68rem;color:<?= $sc ?>;font-weight:600;letter-spacing:.04em;margin-bottom:4px"><?= strtoupper(h($strat)) ?></div>
+      <div style="font-size:.95rem;font-weight:700;color:<?= $spnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>">
+        <?= $spnl >= 0 ? '+' : '' ?>$<?= number_format(abs($spnl), 2) ?>
+      </div>
+    </div>
+    <?php endforeach ?>
+  </div>
+  <?php endif ?>
+
+  <?php if (empty($paperTrades)): ?>
+    <div class="state"><div class="state-i">📈</div><div class="state-t">No paper trades yet</div><div class="state-s">Trades are created automatically when signals fire above the strength threshold.</div></div>
+  <?php else: ?>
+
+  <!-- Open trades -->
+  <?php if (!empty($openTrades)): ?>
+  <div style="padding:16px 16px 0;display:flex;align-items:center;justify-content:space-between">
+    <div style="font-size:.82rem;font-weight:600;color:var(--gn)">OPEN (<?= count($openTrades) ?>)</div>
+    <form method="post" onsubmit="return confirm('Close all open trades at current prices?')">
+      <input type="hidden" name="_csrf" value="<?= csrf() ?>">
+      <input type="hidden" name="action" value="close_all_trades">
+      <button type="submit" style="font-size:.75rem;padding:5px 12px;background:transparent;border:1px solid var(--b1);border-radius:6px;color:var(--t2);cursor:pointer;font-family:inherit">Close All</button>
+    </form>
   </div>
   <div class="tbl-wrap">
     <table>
       <thead><tr>
-        <th>ALERT</th><th>COIN</th><th>ACTION</th>
-        <th>ENTRY PRICE</th><th>CURRENT PRICE</th><th>P&amp;L (USD)</th><th>P&amp;L (%)</th><th>DATE</th>
+        <th>STRATEGY</th><th>COIN</th><th>ACTION</th>
+        <th>ENTRY</th><th>CURRENT</th><th>SIZE (USD)</th><th>P&amp;L $</th><th>P&amp;L %</th><th>AGE</th><th></th>
       </tr></thead>
       <tbody>
-      <?php foreach ($paperTrades as $t):
-        $pnlClass  = $t['pnl_usd'] > 0 ? 'pnl-pos' : ($t['pnl_usd'] < 0 ? 'pnl-neg' : 'pnl-zero');
-        $actColor  = $t['action'] === 'buy' ? 'var(--gn)' : 'var(--rd)';
-      ?>
-      <tr>
-        <td class="muted">#<?= $t['alert_id'] ?></td>
-        <td style="font-weight:700;color:var(--ac)"><?= strtoupper(h($t['coin'])) ?></td>
-        <td style="color:<?= $actColor ?>;letter-spacing:1px;font-size:.72rem"><?= strtoupper(h($t['action'])) ?></td>
-        <td class="num">$<?= number_format((float)$t['entry_price'], 2) ?></td>
-        <td class="num">$<?= number_format((float)$t['current_price'], 2) ?></td>
-        <td class="num <?= $pnlClass ?>"><?= $t['pnl_usd'] >= 0 ? '+' : '' ?>$<?= number_format(abs($t['pnl_usd']), 2) ?></td>
-        <td class="num <?= $pnlClass ?>"><?= $t['pnl_pct'] >= 0 ? '+' : '' ?><?= $t['pnl_pct'] ?>%</td>
-        <td class="muted"><?= date('d M H:i', strtotime($t['timestamp'])) ?></td>
-      </tr>
-      <?php endforeach ?>
+      <?php foreach ($openTrades as $t): tradeRow($t, true); endforeach ?>
       </tbody>
     </table>
   </div>
+  <?php endif ?>
+
+  <!-- Closed trades -->
+  <?php if (!empty($closedTrades)): ?>
+  <div style="padding:16px 16px 0">
+    <div style="font-size:.82rem;font-weight:600;color:var(--t3)">CLOSED (<?= count($closedTrades) ?>)</div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>STRATEGY</th><th>COIN</th><th>ACTION</th>
+        <th>ENTRY</th><th>EXIT</th><th>SIZE (USD)</th><th>P&amp;L $</th><th>P&amp;L %</th><th>HELD</th><th>CLOSED</th>
+      </tr></thead>
+      <tbody>
+      <?php foreach ($closedTrades as $t): tradeRow($t, false); endforeach ?>
+      </tbody>
+    </table>
+  </div>
+  <?php endif ?>
+
+  <?php endif ?>
 </div>
-<?php endif ?>
 
 <!-- ══ RAW DB VIEW ════════════════════════════════════════════════════════════ -->
 <?php elseif ($view === 'db'): ?>

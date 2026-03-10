@@ -25,6 +25,7 @@ REBALANCE_DRIFT          = float(os.getenv("REBALANCE_DRIFT_PCT",    "5.0"))
 FEE_RATE                 = float(os.getenv("FEE_RATE",               "0.001"))
 ALERT_STRENGTH_THRESHOLD = float(os.getenv("ALERT_STRENGTH_THRESHOLD","0.2"))
 ALERT_DEDUP_HOURS        = int(os.getenv("ALERT_DEDUP_HOURS",         "1"))
+BASE_PAPER_TRADE         = float(os.getenv("BASE_PAPER_TRADE",        "1000.0"))  # max USD per trade at strength=1.0
 PRICE_HISTORY_KEEP_DAYS  = int(os.getenv("PRICE_HISTORY_KEEP_DAYS",   "14"))
 SIGNALS_KEEP_DAYS        = int(os.getenv("SIGNALS_KEEP_DAYS",         "90"))
 ALERTS_KEEP_DAYS         = int(os.getenv("ALERTS_KEEP_DAYS",          "90"))
@@ -154,10 +155,20 @@ def setup_db() -> None:
                 entry_price  REAL,
                 amount_coin  REAL,
                 amount_usd   REAL,
-                status       TEXT DEFAULT 'open'
+                status       TEXT DEFAULT 'open',
+                exit_price   REAL,
+                closed_at    TEXT
             )
         """)
         conn.commit()
+        # Migrate existing tables — add columns if they don't exist yet
+        for col, typedef in [("exit_price", "REAL"), ("closed_at", "TEXT")]:
+            try:
+                conn.execute(f"ALTER TABLE paper_trades ADD COLUMN {col} {typedef}")
+                conn.commit()
+                log.info(f"[DB] Migrated paper_trades: added column {col}")
+            except Exception:
+                pass  # Column already exists
 
 def prune_db() -> None:
     """Delete old rows to keep the DB small on the Pi."""
@@ -201,6 +212,16 @@ def save_price_history(prices: Dict[str, float]) -> None:
         )
         conn.commit()
 
+def _close_open_trades(conn, coin: str, action: str, exit_price: float, ts: str) -> int:
+    """Close any open trades for `coin` with the given action at exit_price. Returns count closed."""
+    r = conn.execute(
+        """UPDATE paper_trades SET status='closed', exit_price=?, closed_at=?
+           WHERE coin=? AND action=? AND status='open'""",
+        (exit_price, ts, coin, action),
+    )
+    return r.rowcount
+
+
 def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -> int:
     actionable = [s for s in ranked if s["strength"] > ALERT_STRENGTH_THRESHOLD and s["signal"] != "hold"]
     ts    = datetime.now(tz=timezone.utc).isoformat()
@@ -228,19 +249,29 @@ def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -
             count += 1
             log.info(f"[ALERT] #{alert_id} {sig['strategy'].upper()} {coins_str} → {sig['signal']} strength={sig['strength']:.3f}")
 
+            # Position size scales with signal strength: $200 at min threshold → $1000 at strength=1.0
+            notional_base = round(BASE_PAPER_TRADE * sig["strength"], 2)
+
             # Paper trades — rebalance and momentum: single coin
             if sig["strategy"] in ("rebalance", "momentum"):
-                coin  = sig["coins"][0]
-                price = prices.get(coin, 0)
+                coin   = sig["coins"][0]
+                price  = prices.get(coin, 0)
+                action = sig["signal"]  # "buy" or "sell"
                 if price > 0:
-                    notional  = portfolio[coin]["amount"] * price * 0.25 if (coin in portfolio and portfolio[coin]["amount"] > 0) else 1000.0
+                    # Auto-close any open trades in the opposite direction for this coin
+                    opposite = "sell" if action == "buy" else "buy"
+                    closed = _close_open_trades(conn, coin, opposite, price, ts)
+                    if closed:
+                        log.info(f"[TRADE] Auto-closed {closed} open {opposite.upper()} trade(s) for {coin.upper()} at ${price:,.2f}")
+                    notional  = notional_base
                     trade_amt = round(notional / price, 8)
                     conn.execute(
                         """INSERT INTO paper_trades
                            (alert_id, timestamp, coin, action, entry_price, amount_coin, amount_usd, status)
                            VALUES (?, ?, ?, ?, ?, ?, ?, 'open')""",
-                        (alert_id, ts, coin, sig["signal"], price, trade_amt, round(notional, 2)),
+                        (alert_id, ts, coin, action, price, trade_amt, notional),
                     )
+                    log.info(f"[TRADE] Opened {action.upper()} {coin.upper()} ${notional:.2f} (strength={sig['strength']:.3f})")
 
             # Pairs: two opposing trades
             elif sig["strategy"] == "pairs" and len(sig["coins"]) == 2:
@@ -251,13 +282,18 @@ def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -
                 ]:
                     price = prices.get(coin, 0)
                     if price > 0:
-                        notional  = portfolio[coin]["amount"] * price * 0.25 if (coin in portfolio and portfolio[coin]["amount"] > 0) else 1000.0
+                        # Auto-close same coin's opposite open positions
+                        opposite = "sell" if action == "buy" else "buy"
+                        closed = _close_open_trades(conn, coin, opposite, price, ts)
+                        if closed:
+                            log.info(f"[TRADE] Auto-closed {closed} open {opposite.upper()} trade(s) for {coin.upper()} at ${price:,.2f}")
+                        notional  = notional_base
                         trade_amt = round(notional / price, 8)
                         conn.execute(
                             """INSERT INTO paper_trades
                                (alert_id, timestamp, coin, action, entry_price, amount_coin, amount_usd, status)
                                VALUES (?, ?, ?, ?, ?, ?, ?, 'open')""",
-                            (alert_id, ts, coin, action, price, trade_amt, round(notional, 2)),
+                            (alert_id, ts, coin, action, price, trade_amt, notional),
                         )
             # Arbitrage cycles are skipped — too complex to simulate cleanly
 
