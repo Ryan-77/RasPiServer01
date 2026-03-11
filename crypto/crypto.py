@@ -7,7 +7,7 @@ Modules: rebalance | pairs trading | arbitrage (Bellman-Ford) | momentum (RSI)
 import os, sys, json, math, time, sqlite3, logging, statistics, itertools
 import requests
 import networkx as nx
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import Dict, List
 from dotenv import load_dotenv
 
@@ -108,6 +108,7 @@ log = logging.getLogger(__name__)
 def get_db() -> sqlite3.Connection:
     conn = sqlite3.connect(DB_PATH)
     conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
     return conn
 
 def setup_db() -> None:
@@ -160,7 +161,52 @@ def setup_db() -> None:
                 closed_at    TEXT
             )
         """)
+        # OHLC cache — stores hourly candle data to avoid re-fetching full history each run
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS ohlc_cache (
+                coin      TEXT,
+                timestamp INTEGER,
+                close     REAL,
+                PRIMARY KEY (coin, timestamp)
+            )
+        """)
+        # Market cap cache — avoids hitting CoinPaprika every 5-minute run
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS market_cap_cache (
+                coin       TEXT PRIMARY KEY,
+                rank       INTEGER,
+                updated_at TEXT
+            )
+        """)
+        # P&L snapshots — daily strategy performance that persists after trade pruning
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS pnl_snapshots (
+                date        TEXT,
+                strategy    TEXT,
+                trade_count INTEGER,
+                total_pnl   REAL,
+                win_count   INTEGER,
+                loss_count  INTEGER,
+                PRIMARY KEY (date, strategy)
+            )
+        """)
         conn.commit()
+
+        # Indexes — critical for query performance
+        indexes = [
+            "CREATE INDEX IF NOT EXISTS idx_price_coin_ts ON price_history(coin, timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_alerts_strat_coins_ts ON alerts(strategy, coins, timestamp DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_trades_coin_status ON paper_trades(coin, status)",
+            "CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status)",
+            "CREATE INDEX IF NOT EXISTS idx_ohlc_coin_ts ON ohlc_cache(coin, timestamp DESC)",
+        ]
+        for idx_sql in indexes:
+            try:
+                conn.execute(idx_sql)
+            except Exception:
+                pass
+        conn.commit()
+
         # Migrate existing tables — add columns if they don't exist yet
         for col, typedef in [("exit_price", "REAL"), ("closed_at", "TEXT")]:
             try:
@@ -193,6 +239,11 @@ def prune_db() -> None:
         conn.execute(
             "DELETE FROM paper_trades WHERE status='closed' AND closed_at < datetime('now', '-180 days')"
         )
+        # Prune OHLC cache older than 45 days (buffer beyond 30-day lookback)
+        cutoff_ts = int((datetime.now(tz=timezone.utc) - timedelta(days=45)).timestamp())
+        conn.execute("DELETE FROM ohlc_cache WHERE timestamp < ?", (cutoff_ts,))
+        # Prune stale market cap cache (safety cleanup, >24h old)
+        conn.execute("DELETE FROM market_cap_cache WHERE updated_at < datetime('now', '-1 day')")
         conn.commit()
     # VACUUM must run outside any transaction
     raw = sqlite3.connect(DB_PATH)
@@ -202,6 +253,39 @@ def prune_db() -> None:
     log.info(
         f"[PRUNE] Removed: price_history={r1.rowcount}, signals={r2.rowcount}, alerts={r3.rowcount} rows. VACUUM done."
     )
+
+
+def snapshot_pnl() -> None:
+    """Record daily P&L stats per strategy into pnl_snapshots. Persists after trade pruning."""
+    today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+    with get_db() as conn:
+        rows = conn.execute("""
+            SELECT COALESCE(a.strategy, 'unknown') as strategy,
+                   COUNT(*) as cnt,
+                   SUM(CASE WHEN (pt.exit_price - pt.entry_price) * pt.amount_coin > 0 THEN 1
+                            WHEN pt.action = 'sell' AND (pt.entry_price - pt.exit_price) * pt.amount_coin > 0 THEN 1
+                            ELSE 0 END) as wins,
+                   SUM(CASE WHEN pt.action = 'buy'
+                            THEN (pt.exit_price - pt.entry_price) * pt.amount_coin
+                            ELSE (pt.entry_price - pt.exit_price) * pt.amount_coin END) as pnl
+            FROM paper_trades pt
+            LEFT JOIN alerts a ON pt.alert_id = a.id
+            WHERE pt.status = 'closed' AND pt.closed_at >= ? AND pt.closed_at < datetime(?, '+1 day')
+            GROUP BY a.strategy
+        """, (today, today)).fetchall()
+
+        for r in rows:
+            losses = r["cnt"] - r["wins"]
+            conn.execute("""
+                INSERT INTO pnl_snapshots (date, strategy, trade_count, total_pnl, win_count, loss_count)
+                VALUES (?, ?, ?, ?, ?, ?)
+                ON CONFLICT(date, strategy) DO UPDATE SET
+                    trade_count=excluded.trade_count, total_pnl=excluded.total_pnl,
+                    win_count=excluded.win_count, loss_count=excluded.loss_count
+            """, (today, r["strategy"], r["cnt"], round(r["pnl"] or 0, 2), r["wins"], losses))
+        conn.commit()
+    if rows:
+        log.info(f"[PNL] Snapshot for {today}: {len(rows)} strategy(ies) recorded")
 
 
 def load_portfolio() -> Dict[str, Dict]:
@@ -369,19 +453,52 @@ def build_cross_prices(coins: List[str], prices: Dict[str, float]) -> Dict:
     return result
 
 def fetch_top_coins(n: int = 10) -> List[str]:
-    """Return top n Kraken-tradable non-stablecoin tickers ranked by market cap (CoinPaprika)."""
+    """Return top n Kraken-tradable non-stablecoin tickers ranked by market cap.
+    Uses DB cache (1-hour TTL) to avoid hammering CoinPaprika every 5-min run."""
+
+    # Check cache freshness
+    try:
+        with get_db() as conn:
+            cached = conn.execute(
+                "SELECT coin, rank FROM market_cap_cache WHERE updated_at >= datetime('now', '-1 hour') ORDER BY rank ASC"
+            ).fetchall()
+        if cached:
+            result = [r["coin"] for r in cached if r["coin"] in KRAKEN_PAIRS][:n]
+            if result:
+                log.info(f"[TOP{n}] (cached) {', '.join(t.upper() for t in result)}")
+                return result
+    except Exception:
+        pass
+
+    # Cache miss or stale — fetch from CoinPaprika
     try:
         data = _get("https://api.coinpaprika.com/v1/tickers?limit=50")
         result = []
+        cache_rows = []
+        rank = 0
         for asset in data:
             ticker = asset["symbol"].lower()
             if ticker in STABLECOINS or ticker in SKIP_TICKERS or "_" in ticker:
                 continue
             if ticker not in KRAKEN_PAIRS:
-                continue  # skip coins we can't fetch from Kraken
+                continue
+            rank += 1
+            cache_rows.append((ticker, rank))
             result.append(ticker)
             if len(result) >= n:
                 break
+
+        # Update cache
+        if cache_rows:
+            ts = datetime.now(tz=timezone.utc).isoformat()
+            with get_db() as conn:
+                conn.execute("DELETE FROM market_cap_cache")
+                conn.executemany(
+                    "INSERT INTO market_cap_cache (coin, rank, updated_at) VALUES (?, ?, ?)",
+                    [(c, r, ts) for c, r in cache_rows],
+                )
+                conn.commit()
+
         if result:
             log.info(f"[TOP{n}] {', '.join(t.upper() for t in result)}")
             return result
@@ -393,7 +510,7 @@ def fetch_top_coins(n: int = 10) -> List[str]:
 _history_cache: Dict[str, List[float]] = {}
 
 def fetch_market_history(coin: str, days: int = 30) -> List[float]:
-    """Hourly closing prices from Kraken OHLC. Cached per run (720 candles = 30 days)."""
+    """Hourly closing prices — checks DB cache first, fetches only new candles from Kraken."""
     key = f"{coin}:{days}"
     if key in _history_cache:
         return _history_cache[key]
@@ -402,20 +519,73 @@ def fetch_market_history(coin: str, days: int = 30) -> List[float]:
     if not pair:
         _history_cache[key] = []
         return []
+
+    cutoff_ts = int((datetime.now(tz=timezone.utc) - timedelta(days=days)).timestamp())
+
     try:
+        # Check DB cache for existing data
+        with get_db() as conn:
+            cached = conn.execute(
+                "SELECT timestamp, close FROM ohlc_cache WHERE coin=? AND timestamp >= ? ORDER BY timestamp ASC",
+                (coin, cutoff_ts),
+            ).fetchall()
+
+        latest_cached_ts = cached[-1]["timestamp"] if cached else 0
+
+        # Fetch from Kraken — always get full OHLC (Kraken returns ~720 candles max)
+        # but we only insert candles newer than what we have cached
         data     = _get(f"https://api.kraken.com/0/public/OHLC?pair={pair}&interval=60")
         result   = data.get("result", {})
         ohlc_key = next((k for k in result if k != "last"), None)
         if not ohlc_key:
             raise ValueError("No OHLC data in response")
-        candles  = result[ohlc_key]
-        prices   = [float(c[4]) for c in candles]   # index 4 = close
-        prices   = prices[-(days * 24):]             # trim to requested window
+
+        candles = result[ohlc_key]
+        new_rows = []
+        for c in candles:
+            ts = int(c[0])
+            if ts > latest_cached_ts:
+                new_rows.append((coin, ts, float(c[4])))
+
+        # Insert new candles into cache
+        if new_rows:
+            with get_db() as conn:
+                conn.executemany(
+                    "INSERT OR IGNORE INTO ohlc_cache (coin, timestamp, close) VALUES (?, ?, ?)",
+                    new_rows,
+                )
+                conn.commit()
+
+        # Read full series from cache (now up to date)
+        with get_db() as conn:
+            rows = conn.execute(
+                "SELECT close FROM ohlc_cache WHERE coin=? AND timestamp >= ? ORDER BY timestamp ASC",
+                (coin, cutoff_ts),
+            ).fetchall()
+        prices = [r["close"] for r in rows]
+
+        cache_hits = len(cached)
+        new_count = len(new_rows)
         _history_cache[key] = prices
-        log.info(f"[HISTORY] {coin.upper()}: {len(prices)} pts over {days}d from Kraken")
+        log.info(f"[HISTORY] {coin.upper()}: {len(prices)} pts ({cache_hits} cached, {new_count} new)")
         return prices
+
     except Exception as e:
-        log.warning(f"[HISTORY] {coin.upper()} Kraken failed: {e}")
+        # Fallback: try returning whatever is in the DB cache
+        try:
+            with get_db() as conn:
+                rows = conn.execute(
+                    "SELECT close FROM ohlc_cache WHERE coin=? AND timestamp >= ? ORDER BY timestamp ASC",
+                    (coin, cutoff_ts),
+                ).fetchall()
+            if rows:
+                prices = [r["close"] for r in rows]
+                _history_cache[key] = prices
+                log.warning(f"[HISTORY] {coin.upper()} Kraken failed ({e}), using {len(prices)} cached pts")
+                return prices
+        except Exception:
+            pass
+        log.warning(f"[HISTORY] {coin.upper()} failed: {e}")
         _history_cache[key] = []
         return []
 
@@ -765,6 +935,9 @@ def main() -> None:
             expected_usd=sig["expected_usd"],
             details=sig["details"],
         )
+
+    # Record daily P&L snapshot for long-term performance tracking
+    snapshot_pnl()
 
     log.info(f"Analysis complete — {len(ranked)} signal(s)")
     for i, s in enumerate(ranked, 1):

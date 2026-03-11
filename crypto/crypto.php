@@ -1,86 +1,14 @@
 <?php
-session_start();
+// ══════════════════════════════════════════════════════════════
+//  CRYPTO DASHBOARD — thin HTML shell
+//  All data access goes through db.php; API available at api.php
+// ══════════════════════════════════════════════════════════════
+require_once __DIR__ . '/db.php';
 
-// ══════════════════════════════════════════════════════════════
-//  CONFIG
-// ══════════════════════════════════════════════════════════════
-$DB_FILE   = '/var/www/data/crypto.db';
-$LOG_FILE  = '/var/www/html/crypto/log.txt';
-$LOG_LINES = 200;
-$AUTH_PASS = 'changeme';  // ← change this
-
-$SUPPORTED_COINS = [
-    'btc'  => 'Bitcoin',      'eth'  => 'Ethereum',     'xrp'  => 'XRP',
-    'bnb'  => 'BNB',          'sol'  => 'Solana',       'doge' => 'Dogecoin',
-    'ada'  => 'Cardano',      'trx'  => 'TRON',         'avax' => 'Avalanche',
-    'link' => 'Chainlink',    'ton'  => 'TON',          'sui'  => 'Sui',
-    'shib' => 'Shiba Inu',    'dot'  => 'Polkadot',     'near' => 'NEAR',
-    'ltc'  => 'Litecoin',     'bch'  => 'Bitcoin Cash', 'matic'=> 'Polygon',
-    'xlm'  => 'Stellar',      'hbar' => 'Hedera',
-];
-
-// ══════════════════════════════════════════════════════════════
-//  AUTH
-// ══════════════════════════════════════════════════════════════
-if (isset($_GET['logout'])) { session_destroy(); header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?')); exit; }
-if (!isset($_SESSION['auth'])) {
-    if ($_SERVER['REQUEST_METHOD'] === 'POST' && ($_POST['pass'] ?? '') === $AUTH_PASS) {
-        $_SESSION['auth'] = true;
-        $_SESSION['csrf'] = bin2hex(random_bytes(32));
-        header('Location: ' . strtok($_SERVER['REQUEST_URI'], '?')); exit;
-    } else {
-        $err = $_SERVER['REQUEST_METHOD'] === 'POST';
-        renderLogin($err); exit;
-    }
-}
-if (!isset($_SESSION['csrf'])) $_SESSION['csrf'] = bin2hex(random_bytes(32));
-
-// ══════════════════════════════════════════════════════════════
-//  HELPERS
-// ══════════════════════════════════════════════════════════════
-function h($s)   { return htmlspecialchars((string)$s, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8'); }
-function csrf()  { return $_SESSION['csrf']; }
-function checkCsrf() {
-    if (!hash_equals($_SESSION['csrf'], $_POST['_csrf'] ?? '')) { http_response_code(403); die('Invalid CSRF token'); }
-}
-function buildUrl($p = []) {
-    $base = strtok($_SERVER['REQUEST_URI'], '?');
-    $q    = array_merge(['view' => $_GET['view'] ?? 'analysis'], $p);
-    unset($q['page']);
-    if (isset($p['page'])) $q['page'] = $p['page'];
-    return $base . '?' . http_build_query($q);
-}
-function tailFile($file, $n) {
-    $f = fopen($file, 'rb'); if (!$f) return false;
-    fseek($f, 0, SEEK_END); $pos = ftell($f); $data = ''; $found = 0;
-    while ($pos > 0 && $found <= $n) {
-        $read = min(4096, $pos); $pos -= $read; fseek($f, $pos);
-        $data = fread($f, $read) . $data; $found = substr_count($data, "\n");
-    }
-    fclose($f);
-    return implode("\n", array_slice(explode("\n", $data), -$n));
-}
-
-// ══════════════════════════════════════════════════════════════
-//  DATABASE
-// ══════════════════════════════════════════════════════════════
-function db() {
-    global $DB_FILE;
-    static $pdo;
-    if (!$pdo) {
-        $pdo = new PDO("sqlite:$DB_FILE");
-        $pdo->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
-    }
-    return $pdo;
-}
-
-// ══════════════════════════════════════════════════════════════
-//  PORTFOLIO CRUD (POST handlers)
-// ══════════════════════════════════════════════════════════════
+// ── POST HANDLERS (form submissions from dashboard) ─────────
 if ($_SERVER['REQUEST_METHOD'] === 'POST') {
-    checkCsrf();
+    session_start();
     $action = $_POST['action'] ?? '';
-    global $SUPPORTED_COINS;
 
     if ($action === 'upsert') {
         $coin   = strtolower(trim($_POST['coin']  ?? ''));
@@ -89,64 +17,43 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         if (!array_key_exists($coin, $SUPPORTED_COINS) || $amount <= 0) {
             $_SESSION['flash'] = ['type'=>'err','msg'=>'Invalid coin or amount.'];
         } else {
-            db()->prepare("INSERT INTO portfolio (coin, amount, target_pct, updated_at)
-                           VALUES (?, ?, ?, ?)
-                           ON CONFLICT(coin) DO UPDATE SET amount=excluded.amount,
-                           target_pct=excluded.target_pct, updated_at=excluded.updated_at")
-               ->execute([$coin, $amount, $tgt, date('c')]);
+            upsertPortfolio($coin, $amount, $tgt);
             $_SESSION['flash'] = ['type'=>'ok','msg'=>strtoupper($coin).' updated.'];
         }
     } elseif ($action === 'delete') {
         $coin = strtolower(trim($_POST['coin'] ?? ''));
-        db()->prepare("DELETE FROM portfolio WHERE coin = ?")->execute([$coin]);
+        deletePortfolioCoin($coin);
         $_SESSION['flash'] = ['type'=>'ok','msg'=>strtoupper($coin).' removed.'];
     } elseif ($action === 'run_analysis') {
+        global $LOG_FILE;
         shell_exec('python3 /var/www/html/crypto/crypto.py >> ' . escapeshellarg($LOG_FILE) . ' 2>&1 &');
         $_SESSION['flash'] = ['type'=>'ok','msg'=>'Analysis triggered — results will appear shortly.'];
         header('Location: ' . buildUrl(['view'=>'analysis'])); exit;
     } elseif ($action === 'dismiss_alert') {
         $id = (int)($_POST['alert_id'] ?? 0);
-        if ($id > 0) db()->prepare("UPDATE alerts SET status='seen' WHERE id=?")->execute([$id]);
+        if ($id > 0) dismissAlert($id);
         $_SESSION['flash'] = ['type'=>'ok','msg'=>'Alert dismissed.'];
         header('Location: ' . buildUrl(['view'=>'alerts'])); exit;
     } elseif ($action === 'dismiss_all') {
-        db()->exec("UPDATE alerts SET status='seen' WHERE status='new'");
+        dismissAllAlerts();
         $_SESSION['flash'] = ['type'=>'ok','msg'=>'All alerts cleared.'];
         header('Location: ' . buildUrl(['view'=>'alerts'])); exit;
-
     } elseif ($action === 'close_trade') {
         $id   = (int)($_POST['trade_id'] ?? 0);
         $coin = strtolower(trim($_POST['coin'] ?? ''));
         if ($id > 0 && $coin) {
-            $stmt = db()->prepare("SELECT price_usd FROM price_history WHERE coin=? ORDER BY timestamp DESC LIMIT 1");
-            $stmt->execute([$coin]);
-            $exitPrice = $stmt->fetchColumn();
-            if ($exitPrice !== false) {
-                db()->prepare("UPDATE paper_trades SET status='closed', exit_price=?, closed_at=? WHERE id=? AND status='open'")
-                   ->execute([$exitPrice, date('c'), $id]);
+            if (closeTrade($id, $coin)) {
+                $exitPrice = getLatestPriceForCoin($coin);
                 $_SESSION['flash'] = ['type'=>'ok','msg'=>'Trade closed at $' . number_format((float)$exitPrice, 2) . '.'];
             }
         }
         header('Location: ' . buildUrl(['view'=>'trades'])); exit;
-
     } elseif ($action === 'close_all_trades') {
-        $open = db()->query("SELECT id, coin FROM paper_trades WHERE status='open'")->fetchAll(PDO::FETCH_ASSOC);
-        $now  = date('c'); $closedCount = 0;
-        foreach ($open as $t) {
-            $stmt = db()->prepare("SELECT price_usd FROM price_history WHERE coin=? ORDER BY timestamp DESC LIMIT 1");
-            $stmt->execute([$t['coin']]);
-            $p = $stmt->fetchColumn();
-            if ($p !== false) {
-                db()->prepare("UPDATE paper_trades SET status='closed', exit_price=?, closed_at=? WHERE id=?")
-                   ->execute([$p, $now, $t['id']]);
-                $closedCount++;
-            }
-        }
-        $_SESSION['flash'] = ['type'=>'ok','msg'=>"Closed $closedCount trade(s)."];
+        $count = closeAllTrades();
+        $_SESSION['flash'] = ['type'=>'ok','msg'=>"Closed $count trade(s)."];
         header('Location: ' . buildUrl(['view'=>'trades'])); exit;
-
     } elseif ($action === 'reset_trades') {
-        db()->exec("DELETE FROM paper_trades");
+        resetTrades();
         $_SESSION['flash'] = ['type'=>'ok','msg'=>'Paper trading history reset.'];
         header('Location: ' . buildUrl(['view'=>'trades'])); exit;
     }
@@ -154,172 +61,75 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
     header('Location: ' . buildUrl(['view'=>'portfolio'])); exit;
 }
 
-// ══════════════════════════════════════════════════════════════
-//  VIEW DATA
-// ══════════════════════════════════════════════════════════════
-$view = in_array($_GET['view'] ?? '', ['portfolio','analysis','log','alerts','trades']) ? $_GET['view'] : 'analysis';
-
-// Portfolio
-$portfolio = [];
-if (file_exists($DB_FILE)) {
-    try { $portfolio = db()->query("SELECT * FROM portfolio ORDER BY coin")->fetchAll(PDO::FETCH_ASSOC); }
-    catch (Exception $e) {}
+// ── URL HELPERS ──────────────────────────────────────────────
+function buildUrl(array $p = []): string {
+    $base = strtok($_SERVER['REQUEST_URI'], '?');
+    $q    = array_merge(['view' => $_GET['view'] ?? 'analysis'], $p);
+    unset($q['page']);
+    if (isset($p['page'])) $q['page'] = $p['page'];
+    return $base . '?' . http_build_query($q);
 }
 
-// Latest prices — portfolio coins first, then any additional coins in paper trades
-$latestPrices = [];
-if (file_exists($DB_FILE)) {
-    try {
-        // Single query: latest price per coin across all tracked coins
-        $rows = db()->query("
-            SELECT coin, price_usd FROM price_history
-            WHERE (coin, timestamp) IN (
-                SELECT coin, MAX(timestamp) FROM price_history GROUP BY coin
-            )
-        ")->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($rows as $r) $latestPrices[$r['coin']] = (float)$r['price_usd'];
-    } catch (Exception $e) {
-        // Fallback: query per portfolio coin (in case of SQLite version issues)
-        foreach ($portfolio as $row) {
-            try {
-                $r = db()->prepare("SELECT price_usd FROM price_history WHERE coin=? ORDER BY timestamp DESC LIMIT 1");
-                $r->execute([$row['coin']]); $p = $r->fetchColumn();
-                if ($p !== false) $latestPrices[$row['coin']] = (float)$p;
-            } catch (Exception $e2) {}
-        }
-    }
-}
-
-// Portfolio totals
-$totalUsd = array_sum(array_map(fn($r) => $r['amount'] * ($latestPrices[$r['coin']] ?? 0), $portfolio));
-
-// Analysis signals
-$signals = []; $sigError = null;
-if ($view === 'analysis' && file_exists($DB_FILE)) {
-    try {
-        $signals = db()->query(
-            "SELECT * FROM analysis_signals ORDER BY timestamp DESC LIMIT 100"
-        )->fetchAll(PDO::FETCH_ASSOC);
-    } catch (Exception $e) { $sigError = h($e->getMessage()); }
-}
-
-// Log
-$logContent = $logError = null;
-if ($view === 'log') {
-    if (!file_exists($LOG_FILE)) $logError = 'Log file not found.';
-    else { $logContent = tailFile($LOG_FILE, $LOG_LINES); if ($logContent === false) $logError = 'Cannot read log.'; }
-}
-
-
-// Alerts
-$unseenCount = 0; $alerts = []; $alertError = null;
-if (file_exists($DB_FILE)) {
-    try {
-        $unseenCount = (int)db()->query("SELECT COUNT(*) FROM alerts WHERE status='new'")->fetchColumn();
-        if ($view === 'alerts') {
-            $alerts = db()->query("SELECT * FROM alerts ORDER BY timestamp DESC LIMIT 50")->fetchAll(PDO::FETCH_ASSOC);
-        }
-    } catch (Exception $e) { $alertError = h($e->getMessage()); }
-}
-
-// Paper trades with live P&L (open) or locked P&L (closed), joined with alerts for strategy
-$paperTrades = []; $openTrades = []; $closedTrades = [];
-$paperPnl = 0.0; $openCount = 0;
-if (file_exists($DB_FILE)) {
-    try {
-        $rows = db()->query("
-            SELECT pt.*, a.strategy, a.signal as alert_signal
-            FROM paper_trades pt
-            LEFT JOIN alerts a ON pt.alert_id = a.id
-            ORDER BY pt.timestamp DESC
-        ")->fetchAll(PDO::FETCH_ASSOC);
-        foreach ($rows as &$t) {
-            if ($t['status'] === 'closed' && $t['exit_price'] !== null) {
-                // Locked P&L from recorded exit price
-                $pnl = $t['action'] === 'buy'
-                    ? ((float)$t['exit_price'] - (float)$t['entry_price']) * (float)$t['amount_coin']
-                    : ((float)$t['entry_price'] - (float)$t['exit_price']) * (float)$t['amount_coin'];
-                $t['current_price'] = (float)$t['exit_price'];
-            } else {
-                // Live P&L for open trades
-                $cur = $latestPrices[$t['coin']] ?? (float)$t['entry_price'];
-                $t['current_price'] = $cur;
-                $pnl = $t['action'] === 'buy'
-                    ? ($cur - (float)$t['entry_price']) * (float)$t['amount_coin']
-                    : ((float)$t['entry_price'] - $cur) * (float)$t['amount_coin'];
-                $openCount++;
-            }
-            $t['pnl_usd'] = round($pnl, 2);
-            $t['pnl_pct'] = (float)$t['amount_usd'] > 0 ? round(($pnl / (float)$t['amount_usd']) * 100, 2) : 0;
-            $paperPnl    += $pnl;
-            if (($t['status'] ?? 'open') === 'open') $openTrades[]   = $t;
-            else                                      $closedTrades[] = $t;
-        }
-        unset($t);
-        $paperTrades = $rows;
-    } catch (Exception $e) {}
-}
-$paperPnl = round($paperPnl, 2);
-
-// Flash message
-$flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
-
-// Signal display helpers
-function strategyColor($s) {
+// ── VIEW HELPERS ─────────────────────────────────────────────
+function strategyColor(string $s): string {
     return match($s) {
         'arbitrage' => '#2563eb', 'pairs'  => '#7c3aed',
         'rebalance' => '#d97706', 'momentum' => '#ea580c',
         default     => '#78716c',
     };
 }
-function signalColor($sig) {
+function signalColor(string $sig): string {
     if (str_contains($sig,'buy') || $sig==='opportunity') return '#16a34a';
     if (str_contains($sig,'sell')) return '#dc2626';
     if ($sig==='rebalance') return '#d97706';
     return '#78716c';
 }
-function signalIcon($sig) {
+function signalIcon(string $sig): string {
     if (str_contains($sig,'buy') || $sig==='opportunity') return '↑';
     if (str_contains($sig,'sell')) return '↓';
     if ($sig==='rebalance') return '⇄';
     return '—';
 }
 
-function renderLogin($err=false) { ?>
-<!DOCTYPE html><html lang="en"><head><meta charset="UTF-8"><title>Sign in</title>
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<style>
-*{box-sizing:border-box;margin:0;padding:0}
-body{min-height:100vh;display:flex;align-items:center;justify-content:center;
-     background:#1a1918;font-family:system-ui,-apple-system,'Segoe UI',sans-serif}
-.card{width:380px;padding:48px 40px;background:#242220;border:1px solid #3d3b38;
-      border-radius:16px;box-shadow:0 4px 24px rgba(0,0,0,.4)}
-.logo{text-align:center;font-size:1.4rem;font-weight:700;color:#f0ede8;margin-bottom:6px;letter-spacing:-.01em}
-.sub{text-align:center;font-size:.82rem;color:#6b6966;margin-bottom:36px}
-.err{background:rgba(248,113,113,.08);border:1px solid rgba(248,113,113,.25);color:#f87171;
-     padding:11px;border-radius:8px;font-size:.82rem;text-align:center;margin-bottom:18px}
-label{font-size:.82rem;color:#a8a29e;font-weight:500;display:block;margin-bottom:6px}
-input[type=password]{width:100%;padding:10px 14px;background:#1a1918;border:1px solid #3d3b38;
-     border-radius:8px;color:#f0ede8;font-family:inherit;font-size:.9rem;outline:none;transition:border-color .2s}
-input[type=password]:focus{border-color:#c96442;box-shadow:0 0 0 3px rgba(201,100,66,.2)}
-button{width:100%;margin-top:12px;padding:12px;background:#c96442;
-       border:none;border-radius:8px;color:#fff;font-family:inherit;font-size:.88rem;
-       font-weight:600;cursor:pointer;transition:opacity .2s}
-button:hover{opacity:.88}
-.hint{text-align:center;margin-top:20px;font-size:.75rem;color:#6b6966}
-</style></head><body>
-<div class="card">
-  <div class="logo">Crypto Dashboard</div>
-  <div class="sub">Sign in to your portfolio</div>
-  <?php if($err): ?><div class="err">Incorrect password — please try again</div><?php endif ?>
-  <form method="POST">
-    <label>Password</label>
-    <input type="password" name="pass" autofocus autocomplete="current-password" placeholder="Enter password">
-    <button type="submit">Sign in →</button>
-  </form>
-  <div class="hint">Raspberry Pi Server</div>
-</div></body></html>
-<?php }
+// ── LOAD VIEW DATA ───────────────────────────────────────────
+$view = in_array($_GET['view'] ?? '', ['portfolio','analysis','log','alerts','trades']) ? $_GET['view'] : 'analysis';
+
+$portfolio    = getPortfolio();
+$latestPrices = getLatestPrices();
+$totalUsd     = array_sum(array_map(fn($r) => $r['amount'] * ($latestPrices[$r['coin']] ?? 0), $portfolio));
+$unseenCount  = getUnseenAlertCount();
+
+// Signals
+$signals = []; $sigError = null;
+if ($view === 'analysis') {
+    try { $signals = getSignals(null, 100); }
+    catch (Exception $e) { $sigError = h($e->getMessage()); }
+}
+
+// Log
+$logContent = $logError = null;
+if ($view === 'log') {
+    $logContent = getLogContent($LOG_LINES);
+    if ($logContent === null) $logError = 'Log file not found or cannot be read.';
+}
+
+// Alerts
+$alerts = [];
+if ($view === 'alerts') {
+    $alerts = getAlerts();
+}
+
+// Paper trades with P&L
+$allTrades    = getTrades();
+$allTrades    = computeTradePnl($allTrades, $latestPrices);
+$openTrades   = array_values(array_filter($allTrades, fn($t) => $t['status'] === 'open'));
+$closedTrades = array_values(array_filter($allTrades, fn($t) => $t['status'] === 'closed'));
+$paperPnl     = round(array_sum(array_column($allTrades, 'pnl_usd')), 2);
+$openCount    = count($openTrades);
+
+// Flash message
+session_start();
+$flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
@@ -370,8 +180,6 @@ body{min-height:100vh;background:var(--bg);color:var(--t1);font-family:var(--fon
      text-decoration:none;border:1px solid transparent;transition:all .2s;white-space:nowrap}
 .btn-g{background:var(--s2);border-color:var(--b1);color:var(--t2)}
 .btn-g:hover{border-color:var(--b2);color:var(--t1);background:var(--s3)}
-.btn-r{background:rgba(220,38,38,.06);border-color:rgba(220,38,38,.2);color:var(--rd)}
-.btn-r:hover{background:rgba(220,38,38,.12)}
 
 /* Portfolio summary bar */
 .port-bar{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));
@@ -488,19 +296,6 @@ details[open] summary::before{content:'▼ '}
 .ll:hover{background:rgba(0,0,0,.03)}
 .ll-err{color:#dc2626}.ll-warn{color:#d97706}.ll-ok{color:#16a34a}.ll-ts{color:var(--t2)}.ll-d{color:var(--t3)}
 
-/* Pagination */
-.pgn{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;
-     border-top:1px solid var(--b1);background:var(--s2);flex-wrap:wrap;gap:10px}
-.pgn-info{font-size:.76rem;color:var(--t3)}
-.pgn-links{display:flex;gap:5px;flex-wrap:wrap}
-.pgn-links a,.pgn-links span{display:inline-flex;align-items:center;justify-content:center;
-  min-width:32px;height:32px;padding:0 8px;border-radius:7px;font-size:.8rem;
-  text-decoration:none;border:1px solid var(--b1);transition:all .18s}
-.pgn-links a{color:var(--t2)}
-.pgn-links a:hover{border-color:var(--ac);color:var(--ac);background:var(--ac-d)}
-.pgn-links .cur{background:var(--ac);border-color:var(--ac);color:#fff;font-weight:700}
-.pgn-links .dis{color:var(--t3)}
-
 /* Empty/error states */
 .state{padding:70px 20px;text-align:center}
 .state-i{font-size:2.5rem;margin-bottom:14px}
@@ -557,7 +352,6 @@ details[open] summary::before{content:'▼ '}
       <div class="clock-t" id="clock">──:──:──</div>
       <div class="clock-d" id="cdate">────────────</div>
     </div>
-    <a href="?logout=1" class="btn btn-r">⏻ LOGOUT</a>
   </div>
 </header>
 
@@ -606,15 +400,15 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
 
 <!-- NAV -->
 <nav class="nav">
-  <a href="<?= buildUrl(['view'=>'analysis']) ?>" class="<?= $view==='analysis'?'active':'' ?>">📊 ANALYSIS</a>
+  <a href="<?= buildUrl(['view'=>'analysis']) ?>" class="<?= $view==='analysis'?'active':'' ?>">ANALYSIS</a>
   <a href="<?= buildUrl(['view'=>'alerts']) ?>" class="<?= $view==='alerts'?'active':'' ?>">
-    🔔 ALERTS<?php if ($unseenCount > 0): ?><span class="badge"><?= $unseenCount ?></span><?php endif ?>
+    ALERTS<?php if ($unseenCount > 0): ?><span class="badge"><?= $unseenCount ?></span><?php endif ?>
   </a>
   <a href="<?= buildUrl(['view'=>'trades']) ?>" class="<?= $view==='trades'?'active':'' ?>">
-    📈 TRADES<?php if ($openCount > 0): ?><span class="badge" style="background:var(--gn);color:#000"><?= $openCount ?></span><?php endif ?>
+    TRADES<?php if ($openCount > 0): ?><span class="badge" style="background:var(--gn);color:#000"><?= $openCount ?></span><?php endif ?>
   </a>
-  <a href="<?= buildUrl(['view'=>'portfolio']) ?>" class="<?= $view==='portfolio'?'active':'' ?>">💼 PORTFOLIO</a>
-  <a href="<?= buildUrl(['view'=>'log']) ?>" class="<?= $view==='log'?'active':'' ?>">📋 LOG</a>
+  <a href="<?= buildUrl(['view'=>'portfolio']) ?>" class="<?= $view==='portfolio'?'active':'' ?>">PORTFOLIO</a>
+  <a href="<?= buildUrl(['view'=>'log']) ?>" class="<?= $view==='log'?'active':'' ?>">LOG</a>
   <div class="nav-sp"></div>
   <span style="font-size:.75rem;color:var(--t3)">cron: */5 * * * *</span>
 </nav>
@@ -628,13 +422,12 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
 <?php if ($view === 'analysis'): ?>
 <div class="panel">
   <div class="ph">
-    <div class="ph-t">📊 RANKED SIGNALS — ALL MODULES</div>
+    <div class="ph-t">RANKED SIGNALS — ALL MODULES</div>
     <div style="display:flex;align-items:center;gap:12px">
       <div class="ph-m">UPDATED: <?= date('H:i:s') ?></div>
       <form method="POST" style="margin:0">
-        <input type="hidden" name="_csrf" value="<?= csrf() ?>">
         <input type="hidden" name="action" value="run_analysis">
-        <button type="submit" class="btn btn-g">⟳ RUN NOW</button>
+        <button type="submit" class="btn btn-g">RUN NOW</button>
       </form>
     </div>
   </div>
@@ -668,10 +461,10 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
   </div>
 
   <?php if ($sigError): ?>
-    <div class="err-box">⚠ <?= $sigError ?></div>
+    <div class="err-box"><?= $sigError ?></div>
   <?php elseif (empty($displayed)): ?>
     <div class="state">
-      <div class="state-i">📭</div>
+      <div class="state-i"></div>
       <div class="state-t">NO SIGNALS YET</div>
       <div class="state-s">Add coins to your portfolio and wait for the cron job to run</div>
     </div>
@@ -731,13 +524,13 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
 <?php elseif ($view === 'portfolio'): ?>
 <div class="panel">
   <div class="ph">
-    <div class="ph-t">💼 PORTFOLIO HOLDINGS</div>
+    <div class="ph-t">PORTFOLIO HOLDINGS</div>
     <div class="ph-m">TOTAL: <?= $totalUsd>0 ? '$'.number_format($totalUsd,2) : 'N/A (run analysis first)' ?></div>
   </div>
 
   <?php if (empty($portfolio)): ?>
   <div class="state">
-    <div class="state-i">💼</div>
+    <div class="state-i"></div>
     <div class="state-t">NO HOLDINGS YET</div>
     <div class="state-s">Add your first coin below</div>
   </div>
@@ -780,10 +573,9 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
         <td class="muted"><?= $row['target_pct'] !== null ? round($row['target_pct'],1).'%' : '—' ?></td>
         <td>
           <form method="POST" onsubmit="return confirm('Remove <?= strtoupper($row['coin']) ?>?')">
-            <input type="hidden" name="_csrf" value="<?= csrf() ?>">
             <input type="hidden" name="action" value="delete">
             <input type="hidden" name="coin" value="<?= h($row['coin']) ?>">
-            <button type="submit" class="btn-del">✕ REMOVE</button>
+            <button type="submit" class="btn-del">REMOVE</button>
           </form>
         </td>
       </tr>
@@ -793,7 +585,7 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
         <td colspan="5" style="font-size:.62rem;letter-spacing:2px;color:var(--t3)">TARGET TOTAL</td>
         <td class="muted" style="color:<?= abs($totalPct-100)<1?'var(--gn)':'var(--rd)' ?>">
           <?= round($totalPct,1) ?>%
-          <?= abs($totalPct-100)<1 ? '✓' : '(should = 100%)' ?>
+          <?= abs($totalPct-100)<1 ? '' : '(should = 100%)' ?>
         </td>
         <td></td>
       </tr>
@@ -809,7 +601,6 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
       ADD / UPDATE HOLDING
     </div>
     <form method="POST">
-      <input type="hidden" name="_csrf"  value="<?= csrf() ?>">
       <input type="hidden" name="action" value="upsert">
       <div class="form-row">
         <div class="form-group">
@@ -838,13 +629,13 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
 <?php elseif ($view === 'log'): ?>
 <div class="panel">
   <div class="ph">
-    <div class="ph-t">📋 SYSTEM LOG — LAST <?= $LOG_LINES ?> LINES</div>
+    <div class="ph-t">SYSTEM LOG — LAST <?= $LOG_LINES ?> LINES</div>
     <div class="ph-m">UPDATED: <?= date('H:i:s') ?></div>
   </div>
   <?php if ($logError): ?>
-    <div class="err-box">⚠ <?= h($logError) ?></div>
+    <div class="err-box"><?= h($logError) ?></div>
   <?php elseif (!$logContent): ?>
-    <div class="state"><div class="state-i">📭</div><div class="state-t">LOG IS EMPTY</div></div>
+    <div class="state"><div class="state-i"></div><div class="state-t">LOG IS EMPTY</div></div>
   <?php else: ?>
   <div class="log-body" id="log-body"><?php
     foreach (explode("\n", $logContent) as $line) {
@@ -863,26 +654,23 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
 <?php elseif ($view === 'alerts'): ?>
 <div class="panel">
   <div class="ph">
-    <div class="ph-t">🔔 ALERTS<?php if ($unseenCount > 0): ?> <span style="color:var(--rd)">(<?= $unseenCount ?> NEW)</span><?php endif ?></div>
+    <div class="ph-t">ALERTS<?php if ($unseenCount > 0): ?> <span style="color:var(--rd)">(<?= $unseenCount ?> NEW)</span><?php endif ?></div>
     <div style="display:flex;align-items:center;gap:10px">
       <div class="ph-m"><?= count($alerts) ?> TOTAL</div>
       <?php if ($unseenCount > 0): ?>
       <form method="POST" style="margin:0">
-        <input type="hidden" name="_csrf" value="<?= csrf() ?>">
         <input type="hidden" name="action" value="dismiss_all">
-        <button type="submit" class="btn btn-g">✓ DISMISS ALL</button>
+        <button type="submit" class="btn btn-g">DISMISS ALL</button>
       </form>
       <?php endif ?>
     </div>
   </div>
 
-  <?php if ($alertError): ?>
-    <div class="err-box">⚠ <?= $alertError ?> — run the analysis at least once to create the alerts table.</div>
-  <?php elseif (empty($alerts)): ?>
+  <?php if (empty($alerts)): ?>
     <div class="state">
-      <div class="state-i">🔔</div>
+      <div class="state-i"></div>
       <div class="state-t">NO ALERTS YET</div>
-      <div class="state-s">Alerts fire when signal strength exceeds 50% — run the analysis first</div>
+      <div class="state-s">Alerts fire when signal strength exceeds the threshold — run the analysis first</div>
     </div>
   <?php else: ?>
   <div class="signals-grid">
@@ -915,10 +703,9 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
         <?php endif ?>
         <?php if ($isNew): ?>
         <form method="POST" style="margin:0">
-          <input type="hidden" name="_csrf" value="<?= csrf() ?>">
           <input type="hidden" name="action" value="dismiss_alert">
           <input type="hidden" name="alert_id" value="<?= $al['id'] ?>">
-          <button type="submit" class="btn-del">✓ SEEN</button>
+          <button type="submit" class="btn-del">SEEN</button>
         </form>
         <?php endif ?>
       </div>
@@ -936,13 +723,13 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
   <?php endif ?>
 </div>
 
-<?php if (!empty($paperTrades)): ?>
+<?php if (!empty($allTrades)): ?>
 <div style="margin-top:14px;padding:12px 16px;background:var(--s2);border:1px solid var(--b1);border-radius:var(--r);display:flex;align-items:center;justify-content:space-between">
   <span style="font-size:.84rem;color:var(--t2)">
     <?= $openCount ?> open trade<?= $openCount !== 1 ? 's' : '' ?> · <?= count($closedTrades) ?> closed ·
     Total P&amp;L: <strong style="color:<?= $paperPnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>"><?= $paperPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($paperPnl), 2) ?></strong>
   </span>
-  <a href="<?= buildUrl(['view'=>'trades']) ?>" class="btn" style="font-size:.78rem;padding:6px 14px">📈 View Trades →</a>
+  <a href="<?= buildUrl(['view'=>'trades']) ?>" class="btn" style="font-size:.78rem;padding:6px 14px">View Trades</a>
 </div>
 <?php endif ?>
 
@@ -952,7 +739,7 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
 <?php
 // P&L breakdown by strategy for the summary bar
 $pnlByStrategy = [];
-foreach ($paperTrades as $t) {
+foreach ($allTrades as $t) {
     $strat = $t['strategy'] ?? 'unknown';
     if (!isset($pnlByStrategy[$strat])) $pnlByStrategy[$strat] = 0.0;
     $pnlByStrategy[$strat] += $t['pnl_usd'];
@@ -967,7 +754,6 @@ function tradeRow($t, $showClose = false) {
     $closeTs   = $t['closed_at'] ? strtotime($t['closed_at']) : time();
     $dur       = $closeTs - $openTs;
     $durLabel  = $dur < 3600 ? round($dur/60).'m' : ($dur < 86400 ? round($dur/3600).'h' : round($dur/86400).'d');
-    $priceLabel = $t['status'] === 'closed' ? 'EXIT PRICE' : 'CURRENT';
     ?>
     <tr>
       <td>
@@ -984,7 +770,6 @@ function tradeRow($t, $showClose = false) {
       <?php if ($showClose): ?>
       <td>
         <form method="post" style="display:inline">
-          <input type="hidden" name="_csrf" value="<?= csrf() ?>">
           <input type="hidden" name="action" value="close_trade">
           <input type="hidden" name="trade_id" value="<?= (int)$t['id'] ?>">
           <input type="hidden" name="coin" value="<?= h($t['coin']) ?>">
@@ -1002,16 +787,15 @@ function tradeRow($t, $showClose = false) {
 <!-- Summary bar -->
 <div class="panel">
   <div class="ph">
-    <div class="ph-t">📈 Paper Trades</div>
+    <div class="ph-t">Paper Trades</div>
     <div style="display:flex;gap:8px;align-items:center">
       <span style="font-size:.82rem;font-weight:700;color:<?= $paperPnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>">
         Total P&L: <?= $paperPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($paperPnl), 2) ?>
       </span>
-      <?php if (!empty($paperTrades)): ?>
+      <?php if (!empty($allTrades)): ?>
       <form method="post" style="display:inline" onsubmit="return confirm('Reset all paper trade history?')">
-        <input type="hidden" name="_csrf" value="<?= csrf() ?>">
         <input type="hidden" name="action" value="reset_trades">
-        <button type="submit" style="font-size:.75rem;padding:5px 12px;background:transparent;border:1px solid var(--rd);border-radius:6px;color:var(--rd);cursor:pointer;font-family:inherit">↺ Reset</button>
+        <button type="submit" style="font-size:.75rem;padding:5px 12px;background:transparent;border:1px solid var(--rd);border-radius:6px;color:var(--rd);cursor:pointer;font-family:inherit">Reset</button>
       </form>
       <?php endif ?>
     </div>
@@ -1030,8 +814,8 @@ function tradeRow($t, $showClose = false) {
   </div>
   <?php endif ?>
 
-  <?php if (empty($paperTrades)): ?>
-    <div class="state"><div class="state-i">📈</div><div class="state-t">No paper trades yet</div><div class="state-s">Trades are created automatically when signals fire above the strength threshold.</div></div>
+  <?php if (empty($allTrades)): ?>
+    <div class="state"><div class="state-i"></div><div class="state-t">No paper trades yet</div><div class="state-s">Trades are created automatically when signals fire above the strength threshold.</div></div>
   <?php else: ?>
 
   <!-- Open trades -->
@@ -1039,7 +823,6 @@ function tradeRow($t, $showClose = false) {
   <div style="padding:16px 16px 0;display:flex;align-items:center;justify-content:space-between">
     <div style="font-size:.82rem;font-weight:600;color:var(--gn)">OPEN (<?= count($openTrades) ?>)</div>
     <form method="post" onsubmit="return confirm('Close all open trades at current prices?')">
-      <input type="hidden" name="_csrf" value="<?= csrf() ?>">
       <input type="hidden" name="action" value="close_all_trades">
       <button type="submit" style="font-size:.75rem;padding:5px 12px;background:transparent;border:1px solid var(--b1);border-radius:6px;color:var(--t2);cursor:pointer;font-family:inherit">Close All</button>
     </form>
@@ -1080,7 +863,7 @@ function tradeRow($t, $showClose = false) {
 
 <?php endif; ?>
 
-<div class="footer">Crypto Dashboard &nbsp;·&nbsp; Raspberry Pi &nbsp;·&nbsp; <?= date('Y') ?></div>
+<div class="footer">Crypto Dashboard · Raspberry Pi · <?= date('Y') ?></div>
 </div>
 
 <script>
