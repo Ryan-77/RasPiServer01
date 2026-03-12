@@ -23,3 +23,5 @@ $STRATEGY_WEIGHTS = [
     'rebalance' => 0.70,
     'momentum'  => 0.60,
 ];
+
+$PAPER_PORTFOLIO_DEFAULT = 1000.0;

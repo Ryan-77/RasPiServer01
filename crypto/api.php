@@ -119,6 +119,17 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
         case 'performance':
             jsonOk(getStrategyPerformance());
 
+        case 'paper_portfolio':
+            $latestPrices = getLatestPrices();
+            jsonOk(getPaperPortfolioSummary($latestPrices));
+
+        case 'paper_portfolio_history':
+            $days = min((int)($_GET['days'] ?? 30), 365);
+            jsonOk(getPaperPortfolioHistory($days));
+
+        case 'paper_portfolio_performance':
+            jsonOk(getPaperPortfolioPerformance());
+
         default:
             jsonErr('Unknown action: ' . $action, 404);
     }
@@ -182,6 +193,31 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         case 'reset_trades':
             resetTrades();
             jsonOk(['msg' => 'Paper trading history reset.']);
+
+        case 'fund_paper_portfolio':
+            $amount = (float)($input['amount'] ?? 1000);
+            if ($amount < 100 || $amount > 1000000) jsonErr('Amount must be between $100 and $1,000,000.');
+            fundPaperPortfolio($amount);
+            jsonOk(['msg' => "Paper portfolio funded with \${$amount}.", 'amount' => $amount]);
+
+        case 'reset_paper_portfolio':
+            resetPaperPortfolio();
+            jsonOk(['msg' => 'Paper portfolio reset.']);
+
+        case 'update_paper_settings':
+            $settings = [];
+            foreach (['stop_loss_pct', 'take_profit_pct', 'cash_reserve_pct', 'margin_limit'] as $k) {
+                if (isset($input[$k])) $settings[$k] = (float)$input[$k];
+            }
+            if (empty($settings)) jsonErr('No valid settings provided.');
+            updatePaperSettings($settings);
+            jsonOk(['msg' => 'Paper portfolio settings updated.', 'updated' => array_keys($settings)]);
+
+        case 'toggle_paper_portfolio':
+            $status = $input['status'] ?? '';
+            if (!in_array($status, ['active', 'paused'])) jsonErr('Status must be active or paused.');
+            togglePaperPortfolio($status);
+            jsonOk(['msg' => "Paper portfolio {$status}.", 'status' => $status]);
 
         default:
             jsonErr('Unknown action: ' . $action, 404);
