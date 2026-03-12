@@ -153,7 +153,15 @@ $openCount    = count($openTrades);
 // Paper portfolio
 $ppSummary = getPaperPortfolioSummary($latestPrices);
 $ppFunded  = $ppSummary['funded'] ?? false;
-$ppHistory = $ppFunded ? getPaperPortfolioHistory(30) : [];
+$ppHistory = $ppFunded ? getPaperPortfolioHistory(720) : [];  // 30 days default (hourly)
+
+// Paper trading history (for trades view equity curve)
+$ptHistory = getPaperTradingHistory(720);
+
+// Recommended allocations for user portfolio (always available)
+$recAllocs = getPaperPortfolioAllocations();
+$recAllocMap = [];
+foreach ($recAllocs as $al) { $recAllocMap[$al['coin']] = (float)$al['recommended_pct']; }
 
 // Flash message
 session_start();
@@ -383,6 +391,14 @@ details[open] summary::before{content:'▼ '}
 .pp-cta-t{font-size:.95rem;font-weight:600;color:var(--pu);margin-bottom:8px}
 .pp-cta-s{font-size:.82rem;color:var(--t3);margin-bottom:18px}
 
+/* Timeframe buttons */
+.tf-btns{display:flex;gap:4px;margin-bottom:10px}
+.tf-btn{padding:4px 10px;border:1px solid var(--b1);border-radius:6px;background:transparent;
+        color:var(--t3);font-size:.72rem;font-family:var(--mono);font-weight:600;cursor:pointer;
+        transition:all .15s;letter-spacing:.02em}
+.tf-btn:hover{border-color:var(--pu);color:var(--pu)}
+.tf-btn.active{background:var(--pu);color:#fff;border-color:var(--pu)}
+
 /* Responsive */
 @media(max-width:700px){
   .hdr{flex-direction:column;gap:14px;text-align:center}
@@ -611,7 +627,7 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
     <table>
       <thead><tr>
         <th>COIN</th><th>AMOUNT</th><th>PRICE (USD)</th>
-        <th>VALUE (USD)</th><th>ALLOCATION</th><th>TARGET %</th><th></th>
+        <th>VALUE (USD)</th><th>ALLOCATION</th><th>TARGET %</th><th>REC %</th><th></th>
       </tr></thead>
       <tbody>
       <?php
@@ -644,6 +660,21 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
         </td>
         <td class="muted"><?= $row['target_pct'] !== null ? round($row['target_pct'],1).'%' : '—' ?></td>
         <td>
+          <?php
+            $recPct = $recAllocMap[$row['coin']] ?? null;
+            $recDrift = ($allocPct !== null && $recPct !== null) ? $allocPct - $recPct : null;
+            $recCol = ($recDrift !== null) ? (abs($recDrift) > 5 ? ($recDrift>0?'var(--rd)':'var(--gn)') : 'var(--pu)') : 'var(--t3)';
+          ?>
+          <?php if ($recPct !== null): ?>
+          <span style="font-size:.78rem;color:var(--pu)"><?= number_format($recPct, 1) ?>%</span>
+          <?php if ($recDrift !== null): ?>
+          <span style="font-size:.65rem;color:<?= $recCol ?>;margin-left:3px">
+            (<?= $recDrift>0?'+':'' ?><?= round($recDrift,1) ?>%)
+          </span>
+          <?php endif; ?>
+          <?php else: ?><span class="na">—</span><?php endif; ?>
+        </td>
+        <td>
           <form method="POST" onsubmit="return confirm('Remove <?= strtoupper($row['coin']) ?>?')">
             <input type="hidden" name="action" value="delete">
             <input type="hidden" name="coin" value="<?= h($row['coin']) ?>">
@@ -659,7 +690,7 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
           <?= round($totalPct,1) ?>%
           <?= abs($totalPct-100)<1 ? '' : '(should = 100%)' ?>
         </td>
-        <td></td>
+        <td></td><td></td>
       </tr>
       <?php endif; ?>
       </tbody>
@@ -869,57 +900,30 @@ $recentSig  = $signals[0]['timestamp'] ?? null;
 </div>
 <?php endif; ?>
 
-<!-- Equity Curve -->
-<?php if (!empty($ppHistory) && count($ppHistory) > 1): ?>
+<!-- Equity Curve (JS Canvas) -->
 <div class="panel" style="margin-bottom:14px">
   <div class="ph">
     <div class="ph-t" style="color:var(--pu)">EQUITY CURVE</div>
-    <div class="ph-m"><?= count($ppHistory) ?> DAY<?= count($ppHistory) !== 1 ? 'S' : '' ?></div>
+    <div class="ph-m"><?= count($ppHistory) ?> DATA POINT<?= count($ppHistory) !== 1 ? 'S' : '' ?></div>
   </div>
   <div style="padding:14px 16px">
-    <?php
-    // Compute chart data
-    $chartVals = array_column($ppHistory, 'total_value');
-    $chartBtc  = array_column($ppHistory, 'btc_return_pct');
-    $chartEq   = array_column($ppHistory, 'equal_weight_return_pct');
-    $chartDates= array_column($ppHistory, 'date');
-    $minVal = min($chartVals) * 0.98;
-    $maxVal = max($chartVals) * 1.02;
-    $range  = max($maxVal - $minVal, 1);
-    $w = 100; // percentage width
-    $h_px = 140;
-    $n = count($chartVals);
-
-    // Build SVG polyline points
-    $points = [];
-    for ($i = 0; $i < $n; $i++) {
-        $x = ($n > 1) ? round(($i / ($n - 1)) * 100, 2) : 50;
-        $y = round($h_px - (($chartVals[$i] - $minVal) / $range) * $h_px, 2);
-        $points[] = "{$x}%,{$y}";
-    }
-    $polyline = implode(' ', $points);
-
-    // Funded amount line
-    $funded = $ppCfg['funded_amount'];
-    $fundedY = round($h_px - (($funded - $minVal) / $range) * $h_px, 2);
-    ?>
-    <svg class="equity-chart" viewBox="0 0 100 <?= $h_px ?>" preserveAspectRatio="none" style="width:100%;height:<?= $h_px ?>px">
-      <!-- Funded baseline -->
-      <line x1="0" y1="<?= $fundedY ?>" x2="100" y2="<?= $fundedY ?>"
-            stroke="var(--b2)" stroke-width="0.3" stroke-dasharray="1,1"/>
-      <!-- Equity curve -->
-      <polyline points="<?= $polyline ?>"
-                fill="none" stroke="var(--pu)" stroke-width="0.5" vector-effect="non-scaling-stroke"/>
-    </svg>
-    <div style="display:flex;justify-content:space-between;font-size:.68rem;color:var(--t3);margin-top:4px">
-      <span><?= $chartDates[0] ?? '' ?></span>
-      <span style="color:var(--pu)">portfolio</span>
-      <span style="color:var(--b2)">--- funded ($<?= number_format($funded, 0) ?>)</span>
-      <span><?= end($chartDates) ?: '' ?></span>
+    <div class="tf-btns" id="pp-tf-btns">
+      <button class="tf-btn" data-hours="24">24H</button>
+      <button class="tf-btn" data-hours="168">1W</button>
+      <button class="tf-btn active" data-hours="720">1M</button>
+      <button class="tf-btn" data-hours="2160">3M</button>
+      <button class="tf-btn" data-hours="4380">6M</button>
+      <button class="tf-btn" data-hours="8760">1Y</button>
+    </div>
+    <canvas id="pp-equity-chart" style="width:100%;height:180px"></canvas>
+    <div style="display:flex;gap:14px;justify-content:center;font-size:.68rem;color:var(--t3);margin-top:6px">
+      <span><span style="color:var(--pu)">●</span> portfolio</span>
+      <span><span style="color:var(--or)">●</span> BTC benchmark</span>
+      <span><span style="color:#60a5fa">●</span> equal-weight</span>
+      <span><span style="color:var(--b2)">- -</span> funded ($<?= number_format($ppCfg['funded_amount'] ?? 0, 0) ?>)</span>
     </div>
   </div>
 </div>
-<?php endif; ?>
 
 <!-- Risk & Margin Panel -->
 <div class="panel" style="margin-bottom:14px">
@@ -1186,6 +1190,26 @@ function tradeRow($t, $showClose = false) {
   </div>
   <?php endif ?>
 
+  <!-- Paper Trading Equity Curve -->
+  <?php if (!empty($ptHistory) && count($ptHistory) > 1): ?>
+  <div style="padding:14px 16px">
+    <div style="font-size:.72rem;font-weight:600;letter-spacing:.05em;color:var(--t3);margin-bottom:8px">P&L EQUITY CURVE</div>
+    <div class="tf-btns" id="pt-tf-btns">
+      <button class="tf-btn" data-hours="24">24H</button>
+      <button class="tf-btn" data-hours="168">1W</button>
+      <button class="tf-btn active" data-hours="720">1M</button>
+      <button class="tf-btn" data-hours="2160">3M</button>
+      <button class="tf-btn" data-hours="4380">6M</button>
+      <button class="tf-btn" data-hours="8760">1Y</button>
+    </div>
+    <canvas id="pt-equity-chart" style="width:100%;height:160px"></canvas>
+    <div style="display:flex;gap:14px;justify-content:center;font-size:.68rem;color:var(--t3);margin-top:6px">
+      <span><span style="color:var(--ac)">●</span> P&L</span>
+      <span><span style="color:var(--b2)">- -</span> breakeven ($0)</span>
+    </div>
+  </div>
+  <?php endif; ?>
+
   <?php if (empty($allTrades)): ?>
     <div class="state"><div class="state-i"></div><div class="state-t">No paper trades yet</div><div class="state-s">Trades are created automatically when signals fire above the strength threshold.</div></div>
   <?php else: ?>
@@ -1249,6 +1273,151 @@ function tick(){
 setInterval(tick,1000); tick();
 const lb=document.getElementById('log-body');
 if(lb) lb.scrollTop=lb.scrollHeight;
+
+/* ── Equity Chart Engine ──────────────────────────────────────────────── */
+function drawEquityChart(canvas, data, opts) {
+  if (!canvas || !data || data.length < 2) return;
+  const dpr = window.devicePixelRatio || 1;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * dpr;
+  canvas.height = rect.height * dpr;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(dpr, dpr);
+  const W = rect.width, H = rect.height;
+  const pad = {t:12, b:22, l:52, r:12};
+  const cW = W - pad.l - pad.r, cH = H - pad.t - pad.b;
+
+  // Extract values
+  const vals = data.map(d => d.total_value);
+  let minV = Math.min(...vals), maxV = Math.max(...vals);
+  if (opts.baseline !== undefined) {
+    minV = Math.min(minV, opts.baseline);
+    maxV = Math.max(maxV, opts.baseline);
+  }
+  const range = maxV - minV || 1;
+  minV -= range * 0.04; maxV += range * 0.04;
+  const rng = maxV - minV;
+
+  const toX = i => pad.l + (i / (data.length - 1)) * cW;
+  const toY = v => pad.t + (1 - (v - minV) / rng) * cH;
+
+  // Clear
+  ctx.clearRect(0, 0, W, H);
+
+  // Grid lines
+  ctx.strokeStyle = '#333130'; ctx.lineWidth = 0.5;
+  for (let i = 0; i < 5; i++) {
+    const y = pad.t + (i / 4) * cH;
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    const v = maxV - (i / 4) * rng;
+    ctx.fillStyle = '#6b6966'; ctx.font = '10px system-ui';
+    ctx.textAlign = 'right'; ctx.textBaseline = 'middle';
+    ctx.fillText('$' + v.toFixed(0), pad.l - 6, y);
+  }
+
+  // Baseline
+  if (opts.baseline !== undefined) {
+    const by = toY(opts.baseline);
+    ctx.setLineDash([4, 3]); ctx.strokeStyle = '#4a4845'; ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(pad.l, by); ctx.lineTo(W - pad.r, by); ctx.stroke();
+    ctx.setLineDash([]);
+  }
+
+  // Draw line helper
+  function drawLine(values, color, width) {
+    if (!values || values.length < 2) return;
+    ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
+    values.forEach((v, i) => { if (v === null) return; const fn = i === 0 ? 'moveTo' : 'lineTo'; ctx[fn](toX(i), toY(v)); });
+    ctx.stroke();
+  }
+
+  // Benchmark lines (convert return % to dollar value based on funded)
+  if (opts.showBenchmarks && opts.baseline) {
+    const btcVals = data.map(d => d.btc_return_pct !== undefined ? opts.baseline * (1 + d.btc_return_pct / 100) : null);
+    const eqVals  = data.map(d => d.equal_weight_return_pct !== undefined ? opts.baseline * (1 + d.equal_weight_return_pct / 100) : null);
+    drawLine(btcVals, '#fb923c', 1);
+    drawLine(eqVals, '#60a5fa', 1);
+  }
+
+  // Main line
+  drawLine(vals, opts.color || '#a78bfa', 2);
+
+  // X-axis labels
+  ctx.fillStyle = '#6b6966'; ctx.font = '10px system-ui'; ctx.textAlign = 'center'; ctx.textBaseline = 'top';
+  const labelCount = Math.min(5, data.length);
+  for (let i = 0; i < labelCount; i++) {
+    const idx = Math.floor(i * (data.length - 1) / (labelCount - 1));
+    const d = data[idx];
+    const ts = d.recorded_at || d.date || '';
+    const label = ts.length >= 13 ? ts.substring(5, 13) : ts.substring(0, 10);
+    ctx.fillText(label, toX(idx), H - pad.b + 6);
+  }
+
+  // Hover tooltip
+  canvas.onmousemove = function(e) {
+    const br = canvas.getBoundingClientRect();
+    const mx = e.clientX - br.left;
+    const idx = Math.round(((mx - pad.l) / cW) * (data.length - 1));
+    if (idx < 0 || idx >= data.length) return;
+    const d = data[idx];
+    const ts = d.recorded_at || d.date || '';
+    canvas.title = ts + '  $' + d.total_value.toFixed(2);
+  };
+}
+
+function setupChartButtons(btnContainerId, canvasId, apiEndpoint, opts) {
+  const container = document.getElementById(btnContainerId);
+  const canvas = document.getElementById(canvasId);
+  if (!container || !canvas) return;
+
+  function loadChart(hours) {
+    fetch(apiEndpoint + '&hours=' + hours)
+      .then(r => r.json())
+      .then(resp => {
+        const data = resp.data || resp;
+        if (Array.isArray(data) && data.length > 1) {
+          // Ensure numeric
+          data.forEach(d => {
+            d.total_value = parseFloat(d.total_value) || 0;
+            if (d.btc_return_pct !== undefined) d.btc_return_pct = parseFloat(d.btc_return_pct) || 0;
+            if (d.equal_weight_return_pct !== undefined) d.equal_weight_return_pct = parseFloat(d.equal_weight_return_pct) || 0;
+          });
+          drawEquityChart(canvas, data, opts);
+        }
+      })
+      .catch(err => console.warn('Chart fetch error:', err));
+  }
+
+  container.querySelectorAll('.tf-btn').forEach(btn => {
+    btn.addEventListener('click', function() {
+      container.querySelectorAll('.tf-btn').forEach(b => b.classList.remove('active'));
+      this.classList.add('active');
+      loadChart(parseInt(this.dataset.hours));
+    });
+  });
+
+  // Initial load with default (active button)
+  const activeBtn = container.querySelector('.tf-btn.active');
+  if (activeBtn) loadChart(parseInt(activeBtn.dataset.hours));
+}
+
+// Initialize charts on page load
+document.addEventListener('DOMContentLoaded', function() {
+  // Paper Portfolio equity curve
+  if (document.getElementById('pp-equity-chart')) {
+    setupChartButtons('pp-tf-btns', 'pp-equity-chart',
+      'api.php?action=paper_portfolio_history',
+      { color: '#a78bfa', baseline: <?= json_encode(isset($ppCfg) ? ($ppCfg['funded_amount'] ?? 1000) : 1000) ?>, showBenchmarks: true }
+    );
+  }
+  // Paper Trading P&L equity curve
+  if (document.getElementById('pt-equity-chart')) {
+    setupChartButtons('pt-tf-btns', 'pt-equity-chart',
+      'api.php?action=paper_trading_history',
+      { color: '#c96442', baseline: 0, showBenchmarks: false }
+    );
+  }
+});
 </script>
 </body>
 </html>

@@ -124,11 +124,15 @@ if ($_SERVER['REQUEST_METHOD'] === 'GET') {
             jsonOk(getPaperPortfolioSummary($latestPrices));
 
         case 'paper_portfolio_history':
-            $days = min((int)($_GET['days'] ?? 30), 365);
-            jsonOk(getPaperPortfolioHistory($days));
+            $hours = min((int)($_GET['hours'] ?? 720), 8760);
+            jsonOk(getPaperPortfolioHistory($hours));
 
         case 'paper_portfolio_performance':
             jsonOk(getPaperPortfolioPerformance());
+
+        case 'paper_trading_history':
+            $hours = min((int)($_GET['hours'] ?? 720), 8760);
+            jsonOk(getPaperTradingHistory($hours));
 
         default:
             jsonErr('Unknown action: ' . $action, 404);

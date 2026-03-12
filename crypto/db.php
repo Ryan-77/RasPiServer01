@@ -362,7 +362,7 @@ function getPaperPortfolioSummary(array $latestPrices): array {
     // Latest history row for analytics
     $latestHistory = null;
     try {
-        $latestHistory = db()->query("SELECT * FROM paper_portfolio_history ORDER BY date DESC LIMIT 1")
+        $latestHistory = db()->query("SELECT * FROM paper_portfolio_history ORDER BY recorded_at DESC LIMIT 1")
                              ->fetch(PDO::FETCH_ASSOC);
     } catch (Exception $e) {}
 
@@ -391,7 +391,7 @@ function getPaperPortfolioSummary(array $latestPrices): array {
         'allocations' => $allocs,
         'analytics' => [
             'cumulative_return' => $latestHistory ? (float)$latestHistory['cumulative_return_pct'] : 0,
-            'daily_return'      => $latestHistory ? (float)$latestHistory['daily_return_pct'] : 0,
+            'daily_return'      => $latestHistory ? (float)$latestHistory['period_return_pct'] : 0,
             'sharpe_ratio'      => $latestHistory ? (float)$latestHistory['sharpe_ratio'] : 0,
             'btc_return'        => $latestHistory ? (float)$latestHistory['btc_return_pct'] : 0,
             'equal_weight_return' => $latestHistory ? (float)$latestHistory['equal_weight_return_pct'] : 0,
@@ -467,12 +467,24 @@ function togglePaperPortfolio(string $status): bool {
     }
 }
 
-function getPaperPortfolioHistory(int $days = 30): array {
+function getPaperPortfolioHistory(int $hours = 720): array {
     try {
         $stmt = db()->prepare(
-            "SELECT * FROM paper_portfolio_history WHERE date >= date('now', ?) ORDER BY date ASC"
+            "SELECT * FROM paper_portfolio_history WHERE recorded_at >= datetime('now', ?) ORDER BY recorded_at ASC"
         );
-        $stmt->execute(["-{$days} days"]);
+        $stmt->execute(["-{$hours} hours"]);
+        return $stmt->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
+function getPaperTradingHistory(int $hours = 720): array {
+    try {
+        $stmt = db()->prepare(
+            "SELECT * FROM paper_trading_history WHERE recorded_at >= datetime('now', ?) ORDER BY recorded_at ASC"
+        );
+        $stmt->execute(["-{$hours} hours"]);
         return $stmt->fetchAll(PDO::FETCH_ASSOC);
     } catch (Exception $e) {
         return [];

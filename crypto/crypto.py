@@ -240,19 +240,29 @@ def setup_db() -> None:
         """)
         conn.execute("""
             CREATE TABLE IF NOT EXISTS paper_portfolio_history (
-                date                    TEXT PRIMARY KEY,
+                recorded_at             TEXT PRIMARY KEY,
                 total_value             REAL,
                 cash_balance            REAL,
                 holdings_value          REAL,
                 funded_amount           REAL,
-                daily_return_pct        REAL,
+                period_return_pct       REAL,
                 cumulative_return_pct   REAL,
                 sharpe_ratio            REAL,
                 max_drawdown            REAL,
                 btc_return_pct          REAL,
                 equal_weight_return_pct REAL,
                 open_positions          INTEGER,
-                trade_count_today       INTEGER
+                trade_count             INTEGER
+            )
+        """)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS paper_trading_history (
+                recorded_at      TEXT PRIMARY KEY,
+                total_value      REAL,
+                open_trade_value REAL,
+                closed_pnl       REAL,
+                trade_count      INTEGER,
+                open_count       INTEGER
             )
         """)
         conn.commit()
@@ -265,7 +275,8 @@ def setup_db() -> None:
             "CREATE INDEX IF NOT EXISTS idx_alerts_status ON alerts(status)",
             "CREATE INDEX IF NOT EXISTS idx_ohlc_coin_ts ON ohlc_cache(coin, timestamp DESC)",
             "CREATE INDEX IF NOT EXISTS idx_paper_holdings_coin ON paper_portfolio_holdings(coin)",
-            "CREATE INDEX IF NOT EXISTS idx_paper_history_date ON paper_portfolio_history(date DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_paper_history_ts ON paper_portfolio_history(recorded_at DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_paper_trading_history_ts ON paper_trading_history(recorded_at DESC)",
         ]
         for idx_sql in indexes:
             try:
@@ -282,6 +293,33 @@ def setup_db() -> None:
                 log.info(f"[DB] Migrated paper_trades: added column {col}")
             except Exception:
                 pass  # Column already exists
+        # Migrate paper_portfolio_history: old schema used 'date' PK, new uses 'recorded_at'
+        try:
+            conn.execute("SELECT date FROM paper_portfolio_history LIMIT 1")
+            # Old schema exists — drop and recreate (data loss acceptable for dev)
+            conn.execute("DROP TABLE paper_portfolio_history")
+            conn.execute("""
+                CREATE TABLE paper_portfolio_history (
+                    recorded_at             TEXT PRIMARY KEY,
+                    total_value             REAL,
+                    cash_balance            REAL,
+                    holdings_value          REAL,
+                    funded_amount           REAL,
+                    period_return_pct       REAL,
+                    cumulative_return_pct   REAL,
+                    sharpe_ratio            REAL,
+                    max_drawdown            REAL,
+                    btc_return_pct          REAL,
+                    equal_weight_return_pct REAL,
+                    open_positions          INTEGER,
+                    trade_count             INTEGER
+                )
+            """)
+            conn.commit()
+            log.info("[DB] Migrated paper_portfolio_history: date → recorded_at (hourly)")
+        except Exception:
+            pass  # Already migrated or table is new
+
         # Drop legacy tables no longer used
         try:
             conn.execute("DROP TABLE IF EXISTS arbitrage_results")
@@ -311,8 +349,10 @@ def prune_db() -> None:
         conn.execute("DELETE FROM ohlc_cache WHERE timestamp < ?", (cutoff_ts,))
         # Prune stale market cap cache (safety cleanup, >24h old)
         conn.execute("DELETE FROM market_cap_cache WHERE updated_at < datetime('now', '-1 day')")
-        # Prune paper portfolio history older than 1 year
-        conn.execute("DELETE FROM paper_portfolio_history WHERE date < datetime('now', '-365 days')")
+        # Prune paper portfolio history older than 1 year (hourly data)
+        conn.execute("DELETE FROM paper_portfolio_history WHERE recorded_at < datetime('now', '-365 days')")
+        # Prune paper trading history older than 1 year
+        conn.execute("DELETE FROM paper_trading_history WHERE recorded_at < datetime('now', '-365 days')")
         conn.commit()
     # VACUUM must run outside any transaction
     raw = sqlite3.connect(DB_PATH)
@@ -602,11 +642,17 @@ def compute_recommended_allocations(prices: Dict[str, float],
 
 def save_paper_allocations(allocations: Dict[str, dict],
                             prices: Dict[str, float],
-                            paper_data: dict) -> None:
-    """Save recommended allocations and compute actual allocations from holdings."""
-    cfg = paper_data["config"]
-    holdings = paper_data["holdings"]
-    total_val = cfg["total_value"]
+                            paper_data: dict | None) -> None:
+    """Save recommended allocations and compute actual allocations from holdings.
+    Works even when paper_data is None (saves with actual_pct=0 for user portfolio recs)."""
+    if paper_data:
+        cfg = paper_data["config"]
+        holdings = paper_data["holdings"]
+        total_val = cfg["total_value"]
+    else:
+        holdings = {}
+        total_val = 0
+
     ts = datetime.now(tz=timezone.utc).isoformat()
 
     with get_db() as conn:
@@ -631,15 +677,139 @@ def save_paper_allocations(allocations: Dict[str, dict],
         conn.commit()
 
 
+def execute_paper_rebalance_trades(allocations: Dict[str, dict],
+                                    prices: Dict[str, float],
+                                    paper_data: dict) -> int:
+    """Execute trades to rebalance paper portfolio toward target allocations.
+    Sells overweight positions first, then buys underweight.
+    Returns the number of trades executed."""
+    cfg = paper_data["config"]
+    holdings = paper_data["holdings"]
+    total_val = cfg["total_value"]
+    ts = datetime.now(tz=timezone.utc).isoformat()
+
+    if total_val <= 0:
+        return 0
+
+    # Check rebalance cooldown
+    last_rebal = cfg.get("last_rebalance_at")
+    if last_rebal:
+        try:
+            last_dt = datetime.fromisoformat(last_rebal)
+            elapsed_hrs = (datetime.now(tz=timezone.utc) - last_dt).total_seconds() / 3600
+            if elapsed_hrs < PAPER_REBALANCE_COOLDOWN_HRS:
+                log.info(f"[PAPER] Rebalance cooldown: {elapsed_hrs:.1f}h < {PAPER_REBALANCE_COOLDOWN_HRS}h — skipping")
+                return 0
+        except (ValueError, TypeError):
+            pass  # Invalid timestamp, proceed with rebalance
+
+    # Compute drift per coin
+    drifts = {}  # {coin: drift_pct} where positive = overweight, negative = underweight
+    for coin, alloc in allocations.items():
+        recommended_pct = alloc["recommended_pct"]
+        holding = holdings.get(coin)
+        if holding and holding.get("amount", 0) > 0:
+            price = prices.get(coin, 0)
+            holding_val = holding["amount"] * price if price > 0 else 0
+            actual_pct = (holding_val / total_val) * 100 if total_val > 0 else 0
+        else:
+            actual_pct = 0
+        drift = actual_pct - recommended_pct
+        drifts[coin] = drift
+
+    # Check if any coin drifts enough to warrant rebalance (> 3%)
+    max_drift = max(abs(d) for d in drifts.values()) if drifts else 0
+    if max_drift < 3.0:
+        log.info(f"[PAPER] Max drift {max_drift:.1f}% < 3% threshold — no rebalance needed")
+        return 0
+
+    count = 0
+    with get_db() as conn:
+        # Phase 1: SELL overweight positions (free up cash)
+        sells = sorted(
+            [(coin, drift) for coin, drift in drifts.items() if drift > 3.0],
+            key=lambda x: x[1], reverse=True  # sell most overweight first
+        )
+        for coin, drift in sells:
+            price = prices.get(coin, 0)
+            if price <= 0:
+                continue
+            holding = holdings.get(coin)
+            if not holding or holding.get("amount", 0) <= 0:
+                continue
+
+            # Sell amount to bring drift to 0
+            sell_usd = abs(drift / 100) * total_val
+            sell_usd_after_fee = sell_usd * (1 - FEE_RATE)  # receive less after fee
+            sell_amt = round(sell_usd / price, 8)
+
+            # Don't sell more than we hold
+            sell_amt = min(sell_amt, holding["amount"])
+            actual_sell_usd = round(sell_amt * price, 2)
+
+            if actual_sell_usd < 5.0:  # minimum trade size
+                continue
+
+            if update_paper_portfolio_on_trade(conn, coin, "sell", sell_amt, price,
+                                                round(actual_sell_usd * (1 - FEE_RATE), 2)):
+                conn.execute("""
+                    INSERT INTO paper_trades
+                        (alert_id, timestamp, coin, action, entry_price, amount_coin, amount_usd, status)
+                    VALUES (NULL, ?, ?, 'sell', ?, ?, ?, 'open')
+                """, (ts, coin, price, sell_amt, actual_sell_usd))
+                log.info(f"[PAPER] Rebalance SELL {coin.upper()} ${actual_sell_usd:.2f} "
+                         f"(drift {drift:+.1f}%)")
+                count += 1
+
+        # Phase 2: BUY underweight positions (deploy freed cash)
+        buys = sorted(
+            [(coin, drift) for coin, drift in drifts.items() if drift < -3.0],
+            key=lambda x: x[1]  # buy most underweight first
+        )
+        for coin, drift in buys:
+            price = prices.get(coin, 0)
+            if price <= 0:
+                continue
+
+            # Buy amount to bring drift to 0
+            buy_usd = abs(drift / 100) * total_val
+            buy_usd_with_fee = buy_usd * (1 + FEE_RATE)  # pay more with fee
+            buy_amt = round(buy_usd / price, 8)
+
+            if buy_usd < 5.0:  # minimum trade size
+                continue
+
+            if update_paper_portfolio_on_trade(conn, coin, "buy", buy_amt, price,
+                                                round(buy_usd_with_fee, 2)):
+                conn.execute("""
+                    INSERT INTO paper_trades
+                        (alert_id, timestamp, coin, action, entry_price, amount_coin, amount_usd, status)
+                    VALUES (NULL, ?, ?, 'buy', ?, ?, ?, 'open')
+                """, (ts, coin, price, buy_amt, round(buy_usd, 2)))
+                log.info(f"[PAPER] Rebalance BUY {coin.upper()} ${buy_usd:.2f} "
+                         f"(drift {drift:+.1f}%)")
+                count += 1
+
+        # Update last_rebalance_at
+        if count > 0:
+            conn.execute(
+                "UPDATE paper_portfolio_config SET last_rebalance_at=?, updated_at=? WHERE id=1",
+                (ts, ts)
+            )
+
+        conn.commit()
+    return count
+
+
 def snapshot_paper_portfolio(prices: Dict[str, float], market_coins: List[str]) -> None:
-    """Snapshot paper portfolio value + analytics into history table."""
+    """Snapshot paper portfolio value + analytics into history table (hourly)."""
     with get_db() as conn:
         cfg = conn.execute("SELECT * FROM paper_portfolio_config WHERE id=1").fetchone()
         if not cfg or cfg["status"] != "active":
             return
 
         ts = datetime.now(tz=timezone.utc).isoformat()
-        today = datetime.now(tz=timezone.utc).strftime("%Y-%m-%d")
+        hour_key = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:00:00+00:00")
 
         # Recompute holdings values
         holdings = conn.execute("SELECT * FROM paper_portfolio_holdings").fetchall()
@@ -667,22 +837,29 @@ def snapshot_paper_portfolio(prices: Dict[str, float], market_coins: List[str]) 
             WHERE id=1
         """, (round(total_value, 2), round(hwm, 2), round(max_dd, 2), ts))
 
-        # Compute daily + cumulative returns
+        # Compute period + cumulative returns
         funded = cfg["funded_amount"]
         cumulative_return = round(((total_value - funded) / funded) * 100, 2) if funded > 0 else 0
 
         prev = conn.execute(
-            "SELECT total_value FROM paper_portfolio_history ORDER BY date DESC LIMIT 1"
+            "SELECT total_value FROM paper_portfolio_history ORDER BY recorded_at DESC LIMIT 1"
         ).fetchone()
         prev_val = prev["total_value"] if prev else funded
-        daily_return = round(((total_value - prev_val) / prev_val) * 100, 2) if prev_val > 0 else 0
+        period_return = round(((total_value - prev_val) / prev_val) * 100, 2) if prev_val > 0 else 0
 
-        # Sharpe ratio — rolling 30-day
-        daily_returns = conn.execute(
-            "SELECT daily_return_pct FROM paper_portfolio_history ORDER BY date DESC LIMIT 30"
-        ).fetchall()
-        returns_list = [r["daily_return_pct"] for r in daily_returns if r["daily_return_pct"] is not None]
-        returns_list.append(daily_return)  # include today
+        # Sharpe ratio — rolling 30 unique daily returns for stability
+        # Get latest value per day from hourly data
+        daily_returns_rows = conn.execute("""
+            SELECT substr(recorded_at, 1, 10) as day, period_return_pct
+            FROM paper_portfolio_history
+            WHERE period_return_pct IS NOT NULL
+            GROUP BY substr(recorded_at, 1, 10)
+            ORDER BY day DESC
+            LIMIT 30
+        """).fetchall()
+        returns_list = [r["period_return_pct"] for r in daily_returns_rows
+                        if r["period_return_pct"] is not None]
+        returns_list.append(period_return)
         if len(returns_list) >= 5:
             mean_r = statistics.mean(returns_list)
             std_r = statistics.stdev(returns_list)
@@ -697,7 +874,6 @@ def snapshot_paper_portfolio(prices: Dict[str, float], market_coins: List[str]) 
             created = cfg["created_at"]
             if created:
                 try:
-                    # Get BTC price at fund time from price_history
                     btc_start = conn.execute(
                         "SELECT price_usd FROM price_history WHERE coin='btc' AND timestamp >= ? ORDER BY timestamp ASC LIMIT 1",
                         (created,)
@@ -727,32 +903,70 @@ def snapshot_paper_portfolio(prices: Dict[str, float], market_coins: List[str]) 
             except Exception:
                 pass
 
-        # Count open positions and today's trades
+        # Count open positions and total trades
         open_pos = conn.execute("SELECT COUNT(*) FROM paper_portfolio_holdings WHERE amount > 0").fetchone()[0]
-        today_trades = conn.execute(
-            "SELECT COUNT(*) FROM paper_trades WHERE timestamp >= ?", (today,)
-        ).fetchone()[0]
+        trade_count = conn.execute("SELECT COUNT(*) FROM paper_trades").fetchone()[0]
 
         conn.execute("""
             INSERT INTO paper_portfolio_history
-                (date, total_value, cash_balance, holdings_value, funded_amount,
-                 daily_return_pct, cumulative_return_pct, sharpe_ratio, max_drawdown,
-                 btc_return_pct, equal_weight_return_pct, open_positions, trade_count_today)
+                (recorded_at, total_value, cash_balance, holdings_value, funded_amount,
+                 period_return_pct, cumulative_return_pct, sharpe_ratio, max_drawdown,
+                 btc_return_pct, equal_weight_return_pct, open_positions, trade_count)
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            ON CONFLICT(date) DO UPDATE SET
+            ON CONFLICT(recorded_at) DO UPDATE SET
                 total_value=excluded.total_value, cash_balance=excluded.cash_balance,
-                holdings_value=excluded.holdings_value, daily_return_pct=excluded.daily_return_pct,
+                holdings_value=excluded.holdings_value, period_return_pct=excluded.period_return_pct,
                 cumulative_return_pct=excluded.cumulative_return_pct, sharpe_ratio=excluded.sharpe_ratio,
                 max_drawdown=excluded.max_drawdown, btc_return_pct=excluded.btc_return_pct,
                 equal_weight_return_pct=excluded.equal_weight_return_pct,
-                open_positions=excluded.open_positions, trade_count_today=excluded.trade_count_today
-        """, (today, round(total_value, 2), round(cfg["cash_balance"], 2),
-              round(holdings_value, 2), funded, daily_return, cumulative_return,
-              sharpe, round(max_dd, 2), btc_return, eq_return, open_pos, today_trades))
+                open_positions=excluded.open_positions, trade_count=excluded.trade_count
+        """, (hour_key, round(total_value, 2), round(cfg["cash_balance"], 2),
+              round(holdings_value, 2), funded, period_return, cumulative_return,
+              sharpe, round(max_dd, 2), btc_return, eq_return, open_pos, trade_count))
         conn.commit()
 
     log.info(f"[PAPER] Snapshot: ${total_value:,.2f} (return {cumulative_return:+.1f}%) "
              f"drawdown={max_dd:.1f}% sharpe={sharpe}")
+
+
+def snapshot_paper_trading(prices: Dict[str, float]) -> None:
+    """Snapshot regular paper trade portfolio value hourly (independent of paper portfolio)."""
+    hour_key = datetime.now(tz=timezone.utc).strftime("%Y-%m-%dT%H:00:00+00:00")
+    with get_db() as conn:
+        trades = conn.execute("SELECT * FROM paper_trades").fetchall()
+        if not trades:
+            return
+
+        open_value = 0.0
+        closed_pnl = 0.0
+        open_count = 0
+        for t in trades:
+            price = prices.get(t["coin"], 0)
+            if t["status"] == "open" and price > 0:
+                if t["action"] == "buy":
+                    open_value += (price - t["entry_price"]) * t["amount_coin"]
+                else:
+                    open_value += (t["entry_price"] - price) * t["amount_coin"]
+                open_count += 1
+            elif t["status"] == "closed" and t.get("exit_price"):
+                if t["action"] == "buy":
+                    closed_pnl += (t["exit_price"] - t["entry_price"]) * t["amount_coin"]
+                else:
+                    closed_pnl += (t["entry_price"] - t["exit_price"]) * t["amount_coin"]
+
+        total = round(open_value + closed_pnl, 2)
+        conn.execute("""
+            INSERT INTO paper_trading_history
+                (recorded_at, total_value, open_trade_value, closed_pnl, trade_count, open_count)
+            VALUES (?, ?, ?, ?, ?, ?)
+            ON CONFLICT(recorded_at) DO UPDATE SET
+                total_value=excluded.total_value, open_trade_value=excluded.open_trade_value,
+                closed_pnl=excluded.closed_pnl, trade_count=excluded.trade_count,
+                open_count=excluded.open_count
+        """, (hour_key, total, round(open_value, 2), round(closed_pnl, 2),
+              len(trades), open_count))
+        conn.commit()
+    log.info(f"[TRADES] Snapshot: P&L ${total:,.2f} ({open_count} open)")
 
 
 def load_portfolio() -> Dict[str, Dict]:
@@ -849,13 +1063,15 @@ def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -
                     notional  = notional_base
                     trade_amt = round(notional / price, 8)
 
-                    # Paper portfolio: check margin before opening
+                    # Paper portfolio: apply fee and check margin before opening
                     if pp_active and action == "buy":
-                        if not update_paper_portfolio_on_trade(conn, coin, action, trade_amt, price, notional):
+                        fee_adj = round(notional * (1 + FEE_RATE), 2)
+                        if not update_paper_portfolio_on_trade(conn, coin, action, trade_amt, price, fee_adj):
                             log.info(f"[TRADE] Skipped — margin limit reached for {coin.upper()}")
                             continue
                     elif pp_active and action == "sell":
-                        update_paper_portfolio_on_trade(conn, coin, action, trade_amt, price, notional)
+                        fee_adj = round(notional * (1 - FEE_RATE), 2)
+                        update_paper_portfolio_on_trade(conn, coin, action, trade_amt, price, fee_adj)
 
                     conn.execute(
                         """INSERT INTO paper_trades
@@ -883,9 +1099,10 @@ def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -
                         notional  = notional_base
                         trade_amt = round(notional / price, 8)
 
-                        # Paper portfolio integration
+                        # Paper portfolio integration (with fee)
                         if pp_active:
-                            if not update_paper_portfolio_on_trade(conn, coin, action, trade_amt, price, notional):
+                            fee_adj = round(notional * (1 + FEE_RATE), 2) if action == "buy" else round(notional * (1 - FEE_RATE), 2)
+                            if not update_paper_portfolio_on_trade(conn, coin, action, trade_amt, price, fee_adj):
                                 log.info(f"[TRADE] Skipped — margin limit for {coin.upper()}")
                                 continue
 
@@ -1446,8 +1663,17 @@ def main() -> None:
     # Record daily P&L snapshot for long-term performance tracking
     snapshot_pnl()
 
-    # ── Paper Portfolio Management ────────────────────────────────
+    # Snapshot regular paper trading equity (hourly, always runs)
+    snapshot_paper_trading(prices)
+
+    # ── Recommended Allocations (always computed — used by both portfolios) ──
     paper_data = load_paper_portfolio()
+    allocations = compute_recommended_allocations(prices, market_coins, ranked)
+    if allocations:
+        save_paper_allocations(allocations, prices, paper_data)
+        log.info(f"[ALLOC] Updated recommended allocations for {len(allocations)} coins")
+
+    # ── Paper Portfolio Management ────────────────────────────────
     if paper_data and paper_data["config"]["status"] == "active":
         pp = paper_data["config"]
         log.info("[PAPER] Running paper portfolio management...")
@@ -1458,13 +1684,14 @@ def main() -> None:
             log.info(f"[PAPER] Risk management closed {risk_closed} position(s)")
             paper_data = load_paper_portfolio()  # reload after changes
 
-        # 2. Compute and save recommended allocations
-        allocations = compute_recommended_allocations(prices, market_coins, ranked)
+        # 2. Execute rebalance trades to match allocations
         if allocations and paper_data:
-            save_paper_allocations(allocations, prices, paper_data)
-            log.info(f"[PAPER] Updated allocations for {len(allocations)} coins")
+            rebal_count = execute_paper_rebalance_trades(allocations, prices, paper_data)
+            if rebal_count:
+                log.info(f"[PAPER] Rebalanced: {rebal_count} trade(s)")
+                paper_data = load_paper_portfolio()  # reload after trades
 
-        # 3. Snapshot equity curve + analytics
+        # 3. Snapshot equity curve + analytics (hourly)
         snapshot_paper_portfolio(prices, market_coins)
 
         # Reload for final log
