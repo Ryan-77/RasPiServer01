@@ -848,13 +848,17 @@ def snapshot_paper_portfolio(prices: Dict[str, float], market_coins: List[str]) 
         period_return = round(((total_value - prev_val) / prev_val) * 100, 2) if prev_val > 0 else 0
 
         # Sharpe ratio — rolling 30 unique daily returns for stability
-        # Get latest value per day from hourly data
+        # Get the latest hourly entry per calendar day (end-of-day value)
         daily_returns_rows = conn.execute("""
-            SELECT substr(recorded_at, 1, 10) as day, period_return_pct
+            SELECT period_return_pct
             FROM paper_portfolio_history
             WHERE period_return_pct IS NOT NULL
-            GROUP BY substr(recorded_at, 1, 10)
-            ORDER BY day DESC
+              AND recorded_at IN (
+                  SELECT MAX(recorded_at)
+                  FROM paper_portfolio_history
+                  GROUP BY substr(recorded_at, 1, 10)
+              )
+            ORDER BY recorded_at DESC
             LIMIT 30
         """).fetchall()
         returns_list = [r["period_return_pct"] for r in daily_returns_rows
@@ -948,7 +952,7 @@ def snapshot_paper_trading(prices: Dict[str, float]) -> None:
                 else:
                     open_value += (t["entry_price"] - price) * t["amount_coin"]
                 open_count += 1
-            elif t["status"] == "closed" and t.get("exit_price"):
+            elif t["status"] == "closed" and t["exit_price"]:
                 if t["action"] == "buy":
                     closed_pnl += (t["exit_price"] - t["entry_price"]) * t["amount_coin"]
                 else:
@@ -1390,7 +1394,7 @@ def analyze_rebalance(portfolio: Dict, prices: Dict[str, float]) -> List[dict]:
 # ── MODULE 2: PAIRS TRADING ────────────────────────────────────────────────────
 def analyze_pairs(portfolio: Dict, prices: Dict[str, float], market_coins: List[str]) -> List[dict]:
     signals = []
-    coins   = [c for c in market_coins if c in prices]
+    coins   = [c for c in market_coins if c in prices and prices[c] > 0]
 
     for coin_a, coin_b in itertools.combinations(coins, 2):
         hist_a = fetch_market_history(coin_a, PAIRS_LOOKBACK_DAYS)
@@ -1454,7 +1458,7 @@ def analyze_pairs(portfolio: Dict, prices: Dict[str, float], market_coins: List[
 def analyze_arbitrage(portfolio: Dict, cross_prices: Dict,
                        prices: Dict[str, float], market_coins: List[str]) -> List[dict]:
     signals = []
-    coins   = [c for c in market_coins if c in prices]
+    coins   = [c for c in market_coins if c in prices and prices[c] > 0]
 
     g = nx.DiGraph()
     for coin in coins:
