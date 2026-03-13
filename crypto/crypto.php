@@ -149,7 +149,7 @@ $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
 <head>
 <meta charset="UTF-8"><title>Crypto Dashboard</title>
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<link rel="stylesheet" href="assets/style.css">
+<link rel="stylesheet" href="assets/style.css?v=<?= filemtime(__DIR__ . '/assets/style.css') ?>">
 </head>
 <body>
 <div class="wrap">
@@ -201,6 +201,6 @@ $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
 <script>
 const APP_DATA = { ppFundedAmount: <?= isset($ppSummary) && ($ppSummary['funded'] ?? false) ? (float)($ppSummary['config']['funded_amount'] ?? 1000) : 1000 ?> };
 </script>
-<script src="assets/app.js"></script>
+<script src="assets/app.js?v=<?= filemtime(__DIR__ . '/assets/app.js') ?>"></script>
 </body>
 </html>

@@ -12,7 +12,8 @@ if(lb) lb.scrollTop=lb.scrollHeight;
 
 /* ── Sub-tab Switching (portfolio page) ─────────────────────── */
 function switchTab(tab) {
-  document.querySelectorAll('.sub-tab').forEach(b => b.classList.remove('active'));
+  // Scoped to [data-tab] so we never touch analysis-tabs or other sub-tab sets
+  document.querySelectorAll('.sub-tab[data-tab]').forEach(b => b.classList.remove('active'));
   const btn = document.querySelector('.sub-tab[data-tab="' + tab + '"]');
   if (btn) btn.classList.add('active');
   const h = document.getElementById('tab-holdings');
@@ -278,11 +279,13 @@ function setupChartButtons(btnContainerId, canvasId, apiEndpoint, opts) {
 document.addEventListener('DOMContentLoaded', function() {
   // Parse URL hash for direct tab/sub-tab linking
   const hash = window.location.hash;
-  if (hash.startsWith('#paper')) {
+
+  // Portfolio page sub-tabs — only if portfolio elements exist
+  if (hash.startsWith('#paper') && document.getElementById('tab-paper')) {
     switchTab('paper');
     const sub = hash.includes(':') ? hash.split(':')[1] : 'overview';
     if (PP_TABS.includes(sub)) switchPaperTab(sub);
-  } else if (hash.startsWith('#analysis:')) {
+  } else if (hash.startsWith('#analysis:') && document.getElementById('atab-engine')) {
     const atab = hash.split(':')[1];
     if (ANALYSIS_TABS.includes(atab)) switchAnalysisTab(atab);
   }

@@ -69,20 +69,20 @@ $cntSignals  = count($feedSignals);
 
 <!-- ── Sub-tabs ──────────────────────────────────────────────────────────── -->
 <div class="sub-tabs analysis-tabs">
-  <button class="sub-tab active" data-atab="engine" onclick="switchAnalysisTab('engine')">
-    ENGINE<?php if ($cntEngine): ?><span class="atab-count"><?= $cntEngine ?></span><?php endif ?>
+  <button type="button" class="sub-tab active" data-atab="engine" onclick="switchAnalysisTab('engine')">
+    ENGINE <?php if ($cntEngine): ?><span class="atab-count"><?= $cntEngine ?></span><?php endif ?>
   </button>
-  <button class="sub-tab" data-atab="momentum" onclick="switchAnalysisTab('momentum')">
-    MOMENTUM<?php if ($cntMomentum): ?><span class="atab-count"><?= $cntMomentum ?></span><?php endif ?>
+  <button type="button" class="sub-tab" data-atab="momentum" onclick="switchAnalysisTab('momentum')">
+    MOMENTUM <?php if ($cntMomentum): ?><span class="atab-count"><?= $cntMomentum ?></span><?php endif ?>
   </button>
-  <button class="sub-tab" data-atab="pairs" onclick="switchAnalysisTab('pairs')">
-    PAIRS<?php if ($cntPairs): ?><span class="atab-count"><?= $cntPairs ?></span><?php endif ?>
+  <button type="button" class="sub-tab" data-atab="pairs" onclick="switchAnalysisTab('pairs')">
+    PAIRS <?php if ($cntPairs): ?><span class="atab-count"><?= $cntPairs ?></span><?php endif ?>
   </button>
-  <button class="sub-tab" data-atab="arbitrage" onclick="switchAnalysisTab('arbitrage')">
-    ARBITRAGE<?php if ($cntArb): ?><span class="atab-count"><?= $cntArb ?></span><?php endif ?>
+  <button type="button" class="sub-tab" data-atab="arbitrage" onclick="switchAnalysisTab('arbitrage')">
+    ARBITRAGE <?php if ($cntArb): ?><span class="atab-count"><?= $cntArb ?></span><?php endif ?>
   </button>
-  <button class="sub-tab" data-atab="signals" onclick="switchAnalysisTab('signals')">
-    SIGNALS<?php if ($cntSignals): ?><span class="atab-count"><?= $cntSignals ?></span><?php endif ?>
+  <button type="button" class="sub-tab" data-atab="signals" onclick="switchAnalysisTab('signals')">
+    SIGNALS <?php if ($cntSignals): ?><span class="atab-count"><?= $cntSignals ?></span><?php endif ?>
   </button>
 </div>
 
