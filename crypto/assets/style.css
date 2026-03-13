@@ -259,6 +259,52 @@ th.sortable:hover .sort-hint{opacity:.5}
 /* Position / order type badges (trade history + alerts) */
 .pos-badge{font-size:.68rem;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:4px;border:1px solid transparent;white-space:nowrap}
 
+/* ── Analysis: Status Bar ────────────────────────────────── */
+.analysis-status-bar{
+  display:flex;align-items:center;gap:0;flex-wrap:wrap;
+  background:var(--s1);border:1px solid var(--b1);border-radius:var(--r);
+  overflow:hidden;margin-bottom:14px}
+.status-block{
+  display:flex;flex-direction:column;gap:2px;
+  padding:12px 20px;border-right:1px solid var(--b1);flex-shrink:0}
+.status-block:last-child{border-right:none}
+.status-lbl{font-size:.6rem;letter-spacing:.08em;color:var(--t3);font-weight:600;text-transform:uppercase}
+.status-val{font-size:.88rem;font-weight:600;color:var(--t1);display:flex;align-items:center;gap:6px}
+.status-sub{font-size:.72rem;color:var(--t3)}
+
+/* ── Analysis: Allocation Table ─────────────────────────── */
+.drift-bar-cell{display:flex;align-items:center;gap:8px;min-width:130px}
+.drift-bar-track{flex:1;height:4px;background:var(--b1);border-radius:2px;overflow:hidden;position:relative}
+.drift-fill{height:100%;border-radius:2px;transition:width .3s}
+.action-badge{
+  display:inline-flex;align-items:center;gap:4px;
+  padding:3px 9px;border-radius:6px;border:1px solid transparent;
+  font-size:.72rem;font-weight:600;white-space:nowrap;letter-spacing:.03em}
+
+/* ── Analysis: Strategy Cards ───────────────────────────── */
+.strategy-card{margin-top:14px}
+
+/* ── Analysis: RSI Gauge ─────────────────────────────────── */
+.rsi-gauge{
+  position:relative;height:8px;background:var(--s3);
+  border-radius:4px;overflow:visible}
+.rsi-marker{
+  position:absolute;top:-3px;bottom:-3px;width:2px;
+  background:var(--b2);border-radius:1px;transform:translateX(-50%)}
+
+/* ── Analysis: Arbitrage Path ───────────────────────────── */
+.arb-path{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.arb-arrow{font-size:.72rem;color:var(--t3)}
+
+/* ── Events Tab: Event Cards ─────────────────────────────── */
+.event-card{
+  background:var(--s2);border:1px solid var(--b1);border-radius:var(--r);
+  overflow:hidden;transition:box-shadow .2s;border-left:3px solid var(--b2)}
+.event-card:hover{box-shadow:0 2px 8px rgba(0,0,0,.08)}
+.event-card.seen{opacity:.55}
+.event-card.risk-sl{border-left-color:var(--rd)}
+.event-card.risk-tp{border-left-color:var(--gn)}
+
 /* Responsive */
 @media(max-width:700px){
   .hdr{flex-direction:column;gap:14px;text-align:center}

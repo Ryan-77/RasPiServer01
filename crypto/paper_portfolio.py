@@ -184,6 +184,19 @@ def check_stop_loss_take_profit(prices: Dict[str, float]) -> int:
                     (price, ts, coin)
                 ).rowcount
 
+                # Log risk event as alert (appears in Events tab)
+                conn.execute("""
+                    INSERT INTO alerts
+                        (timestamp, strategy, coins, signal, strength, expected_usd, details, status)
+                    VALUES (?, 'risk', ?, ?, 1.0, ?, ?, 'new')
+                """, (ts, coin, risk_action, amount_usd,
+                      json.dumps({
+                          "pnl_pct":    round(pnl_pct, 2),
+                          "exit_price": price,
+                          "cost_basis": round(cost, 2),
+                          "action":     risk_action,
+                      })))
+
                 log.info(f"[RISK] {risk_action.upper()} triggered for {coin.upper()}: "
                          f"P&L {pnl_pct:+.1f}% | closed {closed} trade(s) at ${price:,.2f}")
                 count += 1

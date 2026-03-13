@@ -114,13 +114,25 @@ if ($view === 'portfolio') {
     $recAllocMap  = [];
     foreach ($recAllocs as $al) { $recAllocMap[$al['coin']] = (float)$al['recommended_pct']; }
 } elseif ($view === 'analysis') {
-    $signals = []; $sigError = null;
-    try { $signals = getSignals(null, 100); }
-    catch (Exception $e) { $sigError = h($e->getMessage()); }
+    $signals        = getSignals(null, 50);
+    $ppAllocations  = getPaperPortfolioAllocations();
+    $ppConfigA      = getPaperPortfolioConfig();
+    $ppHoldingsA    = getPaperPortfolioHoldings();
+    $marketRankings = getMarketCapRankings();
+    $rankMap        = array_column($marketRankings, 'rank', 'coin');
+    $hasTargets     = !empty(array_filter($portfolio, fn($p) => !empty($p['target_pct'])));
+    $byStrategy     = [];
+    $latestTs       = $signals[0]['timestamp'] ?? null;
+    foreach ($signals as $s) {
+        $s['_d'] = json_decode($s['details'] ?? '{}', true) ?? [];
+        if ($latestTs && abs(strtotime($s['timestamp']) - strtotime($latestTs)) < 600) {
+            $byStrategy[$s['strategy']][] = $s;
+        }
+    }
 } elseif ($view === 'alerts') {
-    $alerts       = getAlerts();
+    $riskEvents   = getAlerts(20, 'risk');
+    $signalAlerts = getAlerts(30, null, ['risk']);
     $allTrades    = computeTradePnl($allTrades, $latestPrices);
-    $openTrades   = array_values(array_filter($allTrades, fn($t) => $t['status'] === 'open'));
     $closedTrades = array_values(array_filter($allTrades, fn($t) => $t['status'] === 'closed'));
     $paperPnl     = round(array_sum(array_column($allTrades, 'pnl_usd')), 2);
 } elseif ($view === 'log') {
@@ -168,7 +180,7 @@ $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
   <a href="<?= buildUrl(['view'=>'portfolio']) ?>" class="<?= $view==='portfolio'?'active':'' ?>">PORTFOLIO</a>
   <a href="<?= buildUrl(['view'=>'analysis']) ?>" class="<?= $view==='analysis'?'active':'' ?>">ANALYSIS</a>
   <a href="<?= buildUrl(['view'=>'alerts']) ?>" class="<?= $view==='alerts'?'active':'' ?>">
-    ALERTS<?php if ($unseenCount > 0): ?><span class="badge"><?= $unseenCount ?></span><?php endif ?>
+    EVENTS<?php if ($unseenCount > 0): ?><span class="badge"><?= $unseenCount ?></span><?php endif ?>
   </a>
   <a href="<?= buildUrl(['view'=>'log']) ?>" class="<?= $view==='log'?'active':'' ?>">LOG</a>
   <div class="nav-sp"></div>

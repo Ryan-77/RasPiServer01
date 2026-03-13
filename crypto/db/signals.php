@@ -1,6 +1,16 @@
 <?php
 // ── Signal queries ────────────────────────────────────────────
 
+function getMarketCapRankings(): array {
+    try {
+        return db()->query(
+            "SELECT coin, rank FROM market_cap_cache ORDER BY rank ASC"
+        )->fetchAll(PDO::FETCH_ASSOC);
+    } catch (Exception $e) {
+        return [];
+    }
+}
+
 function getSignals(?string $strategy = null, int $limit = 100): array {
     try {
         if ($strategy && $strategy !== 'all') {
