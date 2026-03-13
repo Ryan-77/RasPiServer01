@@ -15,6 +15,15 @@ $currentRun = array_filter($signals, fn($s) =>
     $lastTs && abs(strtotime($s['timestamp']) - strtotime($lastTs)) < 600
 );
 $currentRunCount = count($currentRun);
+
+// Pre-compute counts for tab badges
+$cntEngine   = count($ppAllocations ?? []);
+$cntMomentum = count($byStrategy['momentum'] ?? []);
+$cntPairs    = count($byStrategy['pairs']    ?? []);
+$cntArb      = count($byStrategy['arbitrage'] ?? []);
+$feedSignals = array_filter($signals, fn($s) => $s['signal'] !== 'hold');
+$feedSignals = array_slice(array_values($feedSignals), 0, 20);
+$cntSignals  = count($feedSignals);
 ?>
 
 <!-- ── Section A: Engine Status Bar ──────────────────────────────────────── -->
@@ -58,7 +67,29 @@ $currentRunCount = count($currentRun);
   </div>
 </div>
 
-<!-- ── Section B: Allocation Engine ──────────────────────────────────────── -->
+<!-- ── Sub-tabs ──────────────────────────────────────────────────────────── -->
+<div class="sub-tabs analysis-tabs">
+  <button class="sub-tab active" data-atab="engine" onclick="switchAnalysisTab('engine')">
+    ENGINE<?php if ($cntEngine): ?><span class="atab-count"><?= $cntEngine ?></span><?php endif ?>
+  </button>
+  <button class="sub-tab" data-atab="momentum" onclick="switchAnalysisTab('momentum')">
+    MOMENTUM<?php if ($cntMomentum): ?><span class="atab-count"><?= $cntMomentum ?></span><?php endif ?>
+  </button>
+  <button class="sub-tab" data-atab="pairs" onclick="switchAnalysisTab('pairs')">
+    PAIRS<?php if ($cntPairs): ?><span class="atab-count"><?= $cntPairs ?></span><?php endif ?>
+  </button>
+  <button class="sub-tab" data-atab="arbitrage" onclick="switchAnalysisTab('arbitrage')">
+    ARBITRAGE<?php if ($cntArb): ?><span class="atab-count"><?= $cntArb ?></span><?php endif ?>
+  </button>
+  <button class="sub-tab" data-atab="signals" onclick="switchAnalysisTab('signals')">
+    SIGNALS<?php if ($cntSignals): ?><span class="atab-count"><?= $cntSignals ?></span><?php endif ?>
+  </button>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- TAB: ENGINE — Allocation Engine + User Rebalance                       -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="atab-engine">
 <?php if (!empty($ppAllocations)): ?>
 <div class="panel" style="margin-top:14px">
   <div class="ph">
@@ -145,15 +176,69 @@ $currentRunCount = count($currentRun);
 </div>
 <?php endif; ?>
 
-<!-- ── Section C: Strategy Deep Dives ─────────────────────────────────────── -->
-<?php if (!empty($byStrategy)): ?>
+<?php /* ── Rebalance (user targets) — inside ENGINE tab ─────── */ ?>
+<?php if (!empty($byStrategy['rebalance']) && $hasTargets): ?>
+<div class="panel strategy-card" style="margin-top:14px">
+  <div class="ph">
+    <div class="ph-t" style="color:var(--yw)">⇄ PORTFOLIO REBALANCE — USER TARGETS</div>
+    <div class="ph-m"><?= count($byStrategy['rebalance']) ?> SIGNAL<?= count($byStrategy['rebalance']) !== 1 ? 'S' : '' ?></div>
+  </div>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr>
+        <th>COIN</th><th>CURRENT %</th><th>TARGET %</th><th>DRIFT</th><th>ACTION</th><th>TRADE $</th><th>EXPLANATION</th>
+      </tr></thead>
+      <tbody>
+      <?php foreach ($byStrategy['rebalance'] as $sig):
+        $d      = $sig['_d'] ?? [];
+        $coin   = trim(explode(',', $sig['coins'])[0]);
+        $curPct = (float)($d['current_pct'] ?? 0);
+        $tgtPct = (float)($d['target_pct']  ?? 0);
+        $dPct   = (float)($d['drift_pct']   ?? 0);
+        $delta  = (float)($d['delta_usd']   ?? 0);
+        $dCol   = $dPct > 0 ? 'var(--rd)' : 'var(--gn)';
+        $pm     = positionMeta($sig['signal'], 'rebalance');
+      ?>
+      <tr>
+        <td style="font-weight:700;color:var(--yw)"><?= strtoupper(h($coin)) ?></td>
+        <td class="num"><?= number_format($curPct, 1) ?>%</td>
+        <td class="num"><?= number_format($tgtPct, 1) ?>%</td>
+        <td class="num" style="color:<?= $dCol ?>"><?= $dPct >= 0 ? '+' : '' ?><?= number_format($dPct, 1) ?>%</td>
+        <td>
+          <span class="pos-badge" style="background:<?= $pm['color'] ?>22;color:<?= $pm['color'] ?>;border-color:<?= $pm['color'] ?>44">
+            <?= $pm['icon'] ?> <?= $pm['label'] ?>
+          </span>
+        </td>
+        <td class="num">$<?= number_format(abs($delta), 2) ?></td>
+        <td style="font-size:.74rem;color:var(--t3)"><?= h(signalVerb($sig)) ?></td>
+      </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+</div>
+<?php endif; ?>
 
-<?php /* ── MOMENTUM ──────────────────────────────────────── */ ?>
+<?php if (empty($ppAllocations)): ?>
+<div class="panel" style="margin-top:14px">
+  <div class="state">
+    <div class="state-i">⚙</div>
+    <div class="state-t">NO ALLOCATION DATA</div>
+    <div class="state-s">Run the engine to generate recommended allocations</div>
+  </div>
+</div>
+<?php endif; ?>
+</div><!-- /atab-engine -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- TAB: MOMENTUM — RSI Signals                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="atab-momentum" style="display:none">
 <?php if (!empty($byStrategy['momentum'])): ?>
 <div class="panel strategy-card" style="margin-top:14px">
   <div class="ph">
     <div class="ph-t" style="color:var(--or)">⚡ MOMENTUM — RSI SIGNALS</div>
-    <div class="ph-m"><?= count($byStrategy['momentum']) ?> COIN<?= count($byStrategy['momentum']) !== 1 ? 'S' : '' ?></div>
+    <div class="ph-m"><?= $cntMomentum ?> COIN<?= $cntMomentum !== 1 ? 'S' : '' ?></div>
   </div>
   <?php foreach ($byStrategy['momentum'] as $sig):
     $d      = $sig['_d'] ?? [];
@@ -168,6 +253,7 @@ $currentRunCount = count($currentRun);
     $icon   = signalIcon($sig['signal']);
     $pct    = round($sig['strength'] * 100);
     $rsiColor = $rsi >= $rsiH ? 'var(--rd)' : ($rsi <= $rsiL ? 'var(--gn)' : 'var(--t2)');
+    $expUsd = $hasPP ? round($ppVal * $sig['strength'] * 0.10, 2) : (float)($sig['expected_usd'] ?? 0);
   ?>
   <div style="padding:14px 16px;border-top:1px solid var(--b1);display:grid;grid-template-columns:110px 1fr 100px;gap:16px;align-items:start">
     <!-- Coin info -->
@@ -206,21 +292,33 @@ $currentRunCount = count($currentRun);
       <div style="font-size:.68rem;color:var(--t3);margin-top:4px">
         10h: <?= $roc >= 0 ? '+' : '' ?><?= number_format($roc, 2) ?>%
       </div>
-      <?php if ($sig['expected_usd'] > 0): ?>
-      <div style="font-size:.72rem;color:var(--t2);margin-top:4px">~$<?= number_format((float)$sig['expected_usd'], 2) ?></div>
+      <?php if ($expUsd > 0): ?>
+      <div style="font-size:.72rem;color:var(--t2);margin-top:4px">~$<?= number_format($expUsd, 2) ?></div>
       <?php endif; ?>
     </div>
   </div>
   <?php endforeach; ?>
 </div>
+<?php else: ?>
+<div class="panel" style="margin-top:14px">
+  <div class="state">
+    <div class="state-i">⚡</div>
+    <div class="state-t">NO MOMENTUM SIGNALS</div>
+    <div class="state-s">No overbought or oversold conditions detected this run</div>
+  </div>
+</div>
 <?php endif; ?>
+</div><!-- /atab-momentum -->
 
-<?php /* ── PAIRS ──────────────────────────────────────────── */ ?>
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- TAB: PAIRS — Divergence Signals                                        -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="atab-pairs" style="display:none">
 <?php if (!empty($byStrategy['pairs'])): ?>
 <div class="panel strategy-card" style="margin-top:14px">
   <div class="ph">
     <div class="ph-t" style="color:var(--pu)">⇄ PAIRS TRADING — DIVERGENCE</div>
-    <div class="ph-m"><?= count($byStrategy['pairs']) ?> PAIR<?= count($byStrategy['pairs']) !== 1 ? 'S' : '' ?></div>
+    <div class="ph-m"><?= $cntPairs ?> PAIR<?= $cntPairs !== 1 ? 'S' : '' ?></div>
   </div>
   <?php foreach ($byStrategy['pairs'] as $sig):
     $d     = $sig['_d'] ?? [];
@@ -232,6 +330,7 @@ $currentRunCount = count($currentRun);
     $pmA   = positionMeta($actA, 'pairs');
     $pmB   = positionMeta($actB, 'pairs');
     $pct   = round($sig['strength'] * 100);
+    $expUsd = $hasPP ? round($ppVal * $sig['strength'] * 0.05, 2) : (float)($sig['expected_usd'] ?? 0);
   ?>
   <div style="padding:14px 16px;border-top:1px solid var(--b1)">
     <div style="display:flex;align-items:flex-start;gap:16px;flex-wrap:wrap">
@@ -252,8 +351,8 @@ $currentRunCount = count($currentRun);
           </span>
           <?php endif; ?>
         </div>
-        <?php if (!empty($d['trade_usd']) && $d['trade_usd'] > 0): ?>
-        <div style="font-size:.7rem;color:var(--t3);margin-top:6px">~$<?= number_format((float)$d['trade_usd'], 0) ?>/side</div>
+        <?php if ($expUsd > 0): ?>
+        <div style="font-size:.7rem;color:var(--t3);margin-top:6px">~$<?= number_format($expUsd, 0) ?>/side</div>
         <?php endif; ?>
       </div>
       <!-- Verbal + z-score -->
@@ -281,14 +380,26 @@ $currentRunCount = count($currentRun);
   </div>
   <?php endforeach; ?>
 </div>
+<?php else: ?>
+<div class="panel" style="margin-top:14px">
+  <div class="state">
+    <div class="state-i">⇄</div>
+    <div class="state-t">NO PAIRS SIGNALS</div>
+    <div class="state-s">No statistically significant price divergences detected</div>
+  </div>
+</div>
 <?php endif; ?>
+</div><!-- /atab-pairs -->
 
-<?php /* ── ARBITRAGE ──────────────────────────────────────── */ ?>
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- TAB: ARBITRAGE — Cycle Opportunities                                   -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="atab-arbitrage" style="display:none">
 <?php if (!empty($byStrategy['arbitrage'])): ?>
 <div class="panel strategy-card" style="margin-top:14px">
   <div class="ph">
     <div class="ph-t" style="color:var(--ac)">△ ARBITRAGE — CYCLE OPPORTUNITIES</div>
-    <div class="ph-m"><?= count($byStrategy['arbitrage']) ?> CYCLE<?= count($byStrategy['arbitrage']) !== 1 ? 'S' : '' ?></div>
+    <div class="ph-m"><?= $cntArb ?> CYCLE<?= $cntArb !== 1 ? 'S' : '' ?></div>
   </div>
   <?php foreach ($byStrategy['arbitrage'] as $sig):
     $d        = $sig['_d'] ?? [];
@@ -296,7 +407,7 @@ $currentRunCount = count($currentRun);
     $gain     = (float)($d['net_gain_pct']  ?? 0);
     $factor   = (float)($d['factor']        ?? 1);
     $feeRate  = (float)($d['fee_rate']      ?? 0.001);
-    $notional = (float)($d['trade_usd_est'] ?? 1000);
+    $notional = $hasPP ? round($ppVal * 0.10, 2) : (float)($d['trade_usd_est'] ?? 1000);
     $estProfit = round($notional * $gain / 100, 2);
     $gainColor = $gain > 0 ? 'var(--gn)' : 'var(--rd)';
     $pct       = round($sig['strength'] * 100);
@@ -344,58 +455,21 @@ $currentRunCount = count($currentRun);
   </div>
   <?php endforeach; ?>
 </div>
-<?php endif; ?>
-
-<?php /* ── REBALANCE (only if user has target % set) ──────── */ ?>
-<?php if (!empty($byStrategy['rebalance']) && $hasTargets): ?>
-<div class="panel strategy-card" style="margin-top:14px">
-  <div class="ph">
-    <div class="ph-t" style="color:var(--yw)">⇄ PORTFOLIO REBALANCE — USER TARGETS</div>
-    <div class="ph-m"><?= count($byStrategy['rebalance']) ?> SIGNAL<?= count($byStrategy['rebalance']) !== 1 ? 'S' : '' ?></div>
-  </div>
-  <div class="tbl-wrap">
-    <table>
-      <thead><tr>
-        <th>COIN</th><th>CURRENT %</th><th>TARGET %</th><th>DRIFT</th><th>ACTION</th><th>TRADE $</th><th>EXPLANATION</th>
-      </tr></thead>
-      <tbody>
-      <?php foreach ($byStrategy['rebalance'] as $sig):
-        $d      = $sig['_d'] ?? [];
-        $coin   = trim(explode(',', $sig['coins'])[0]);
-        $curPct = (float)($d['current_pct'] ?? 0);
-        $tgtPct = (float)($d['target_pct']  ?? 0);
-        $dPct   = (float)($d['drift_pct']   ?? 0);
-        $delta  = (float)($d['delta_usd']   ?? 0);
-        $dCol   = $dPct > 0 ? 'var(--rd)' : 'var(--gn)';
-        $pm     = positionMeta($sig['signal'], 'rebalance');
-      ?>
-      <tr>
-        <td style="font-weight:700;color:var(--yw)"><?= strtoupper(h($coin)) ?></td>
-        <td class="num"><?= number_format($curPct, 1) ?>%</td>
-        <td class="num"><?= number_format($tgtPct, 1) ?>%</td>
-        <td class="num" style="color:<?= $dCol ?>"><?= $dPct >= 0 ? '+' : '' ?><?= number_format($dPct, 1) ?>%</td>
-        <td>
-          <span class="pos-badge" style="background:<?= $pm['color'] ?>22;color:<?= $pm['color'] ?>;border-color:<?= $pm['color'] ?>44">
-            <?= $pm['icon'] ?> <?= $pm['label'] ?>
-          </span>
-        </td>
-        <td class="num">$<?= number_format(abs($delta), 2) ?></td>
-        <td style="font-size:.74rem;color:var(--t3)"><?= h(signalVerb($sig)) ?></td>
-      </tr>
-      <?php endforeach; ?>
-      </tbody>
-    </table>
+<?php else: ?>
+<div class="panel" style="margin-top:14px">
+  <div class="state">
+    <div class="state-i">△</div>
+    <div class="state-t">NO ARBITRAGE OPPORTUNITIES</div>
+    <div class="state-s">No profitable exchange rate cycles found this run</div>
   </div>
 </div>
 <?php endif; ?>
+</div><!-- /atab-arbitrage -->
 
-<?php endif; // byStrategy ?>
-
-<!-- ── Section D: Signal Feed ────────────────────────────────────────────── -->
-<?php
-$feedSignals = array_filter($signals, fn($s) => $s['signal'] !== 'hold');
-$feedSignals = array_slice(array_values($feedSignals), 0, 20);
-?>
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<!-- TAB: SIGNALS — Compact Feed                                            -->
+<!-- ═══════════════════════════════════════════════════════════════════════ -->
+<div id="atab-signals" style="display:none">
 <?php if (!empty($feedSignals)): ?>
 <div class="panel" style="margin-top:14px">
   <div class="ph">
@@ -415,6 +489,7 @@ $feedSignals = array_slice(array_values($feedSignals), 0, 20);
         $coins = array_map('trim', explode(',', $sig['coins']));
         $ts    = date('d M H:i', strtotime($sig['timestamp']));
         $pct   = round($sig['strength'] * 100);
+        $expUsd = $hasPP ? round($ppVal * $sig['strength'] * 0.05, 2) : (float)($sig['expected_usd'] ?? 0);
       ?>
       <tr>
         <td class="muted" style="font-size:.72rem"><?= $ts ?></td>
@@ -440,7 +515,7 @@ $feedSignals = array_slice(array_values($feedSignals), 0, 20);
           </div>
         </td>
         <td class="num">
-          <?= $sig['expected_usd'] > 0 ? '~$' . number_format((float)$sig['expected_usd'], 2) : '<span class="na">—</span>' ?>
+          <?= $expUsd > 0 ? '~$' . number_format($expUsd, 2) : '<span class="na">—</span>' ?>
         </td>
       </tr>
       <?php endforeach; ?>
@@ -448,14 +523,13 @@ $feedSignals = array_slice(array_values($feedSignals), 0, 20);
     </table>
   </div>
 </div>
-<?php endif; ?>
-
-<?php if (empty($ppAllocations) && empty($signals)): ?>
+<?php else: ?>
 <div class="panel" style="margin-top:14px">
   <div class="state">
-    <div class="state-i"></div>
-    <div class="state-t">NO ANALYSIS DATA YET</div>
+    <div class="state-i">📡</div>
+    <div class="state-t">NO SIGNALS</div>
     <div class="state-s">Add coins to your portfolio and run the engine using the button above</div>
   </div>
 </div>
 <?php endif; ?>
+</div><!-- /atab-signals -->

@@ -64,9 +64,11 @@ def analyze_rebalance(portfolio: Dict, prices: Dict[str, float]) -> List[dict]:
 
 
 # ── MODULE 2: PAIRS TRADING ──────────────────────────────────────────────────
-def analyze_pairs(portfolio: Dict, prices: Dict[str, float], market_coins: List[str]) -> List[dict]:
+def analyze_pairs(portfolio: Dict, prices: Dict[str, float],
+                   market_coins: List[str], portfolio_value: float = 0) -> List[dict]:
     signals = []
     coins   = [c for c in market_coins if c in prices and prices[c] > 0]
+    fallback = portfolio_value * 0.05 if portfolio_value > 0 else BASE_PAPER_TRADE
 
     for coin_a, coin_b in itertools.combinations(coins, 2):
         hist_a = fetch_market_history(coin_a, PAIRS_LOOKBACK_DAYS)
@@ -97,9 +99,9 @@ def analyze_pairs(portfolio: Dict, prices: Dict[str, float], market_coins: List[
             action_a, action_b = "buy", "sell"
             desc = f"{coin_a.upper()} undervalued vs {coin_b.upper()}"
 
-        # Use portfolio value if held, else BASE_PAPER_TRADE notional per side
-        val_a     = portfolio[coin_a]["amount"] * prices[coin_a] if (coin_a in portfolio and portfolio[coin_a]["amount"] > 0) else BASE_PAPER_TRADE
-        val_b     = portfolio[coin_b]["amount"] * prices[coin_b] if (coin_b in portfolio and portfolio[coin_b]["amount"] > 0) else BASE_PAPER_TRADE
+        # Use portfolio value if held, else 5% of portfolio as notional per side
+        val_a     = portfolio[coin_a]["amount"] * prices[coin_a] if (coin_a in portfolio and portfolio[coin_a]["amount"] > 0) else fallback
+        val_b     = portfolio[coin_b]["amount"] * prices[coin_b] if (coin_b in portfolio and portfolio[coin_b]["amount"] > 0) else fallback
         trade_usd = min(val_a, val_b) * 0.5
         # Strength proportional to z-score: z=1.5→0.375, z=2.0→0.5, z=4.0→1.0
         # At z=PAIRS_ZSCORE_ENTRY (1.5) strength=0.375 which clears the 0.2 alert threshold
@@ -129,7 +131,8 @@ def analyze_pairs(portfolio: Dict, prices: Dict[str, float], market_coins: List[
 
 # ── MODULE 3: ARBITRAGE (BELLMAN-FORD) ────────────────────────────────────────
 def analyze_arbitrage(portfolio: Dict, cross_prices: Dict,
-                       prices: Dict[str, float], market_coins: List[str]) -> List[dict]:
+                       prices: Dict[str, float], market_coins: List[str],
+                       portfolio_value: float = 0) -> List[dict]:
     signals = []
     coins   = [c for c in market_coins if c in prices and prices[c] > 0]
 
@@ -172,11 +175,12 @@ def analyze_arbitrage(portfolio: Dict, cross_prices: Dict,
             log.info(f"[ARBITRAGE] Best cycle factor {factor:.6f} below threshold {ARB_THRESHOLD}")
             return signals
 
-        # Use portfolio value if held, else $1000 notional per coin in cycle
+        # Use portfolio value if held, else 10% of portfolio as notional
         held = [c for c in cycle if c in portfolio]
+        fallback  = portfolio_value * 0.10 if portfolio_value > 0 else 1000.0
         trade_usd = min(
             (portfolio[c]["amount"] * prices.get(c, 0)) for c in held
-        ) if held else 1000.0
+        ) if held else fallback
         strength = min((factor - 1.0) / 0.01, 1.0)
 
         signals.append({
@@ -206,7 +210,8 @@ def analyze_arbitrage(portfolio: Dict, cross_prices: Dict,
 
 
 # ── MODULE 4: MOMENTUM (RSI + ROC) ───────────────────────────────────────────
-def analyze_momentum(portfolio: Dict, prices: Dict[str, float], market_coins: List[str]) -> List[dict]:
+def analyze_momentum(portfolio: Dict, prices: Dict[str, float],
+                      market_coins: List[str], portfolio_value: float = 0) -> List[dict]:
     """
     Generates buy/sell signals from Wilder's RSI + rate-of-change confirmation.
 
@@ -252,9 +257,11 @@ def analyze_momentum(portfolio: Dict, prices: Dict[str, float], market_coins: Li
         else:
             signal, label, strength = "hold", "neutral", 0.0
 
+        # Use 25% of position if held, else 5% of portfolio as hypothetical trade
+        fallback  = portfolio_value * 0.05 if portfolio_value > 0 else BASE_PAPER_TRADE
         trade_usd = (portfolio[coin]["amount"] * prices[coin] * 0.25
                      if (coin in portfolio and portfolio[coin]["amount"] > 0)
-                     else BASE_PAPER_TRADE)
+                     else fallback)
 
         signals.append({
             "strategy":     "momentum",

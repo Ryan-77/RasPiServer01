@@ -51,6 +51,20 @@ function switchTab(tab) {
   }
 }
 
+/* ── Analysis Page Sub-tabs ─────────────────────────────────── */
+const ANALYSIS_TABS = ['engine','momentum','pairs','arbitrage','signals'];
+
+function switchAnalysisTab(tab) {
+  document.querySelectorAll('.analysis-tabs .sub-tab').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector('.analysis-tabs .sub-tab[data-atab="' + tab + '"]');
+  if (btn) btn.classList.add('active');
+  ANALYSIS_TABS.forEach(t => {
+    const el = document.getElementById('atab-' + t);
+    if (el) el.style.display = t === tab ? 'block' : 'none';
+  });
+  history.replaceState(null, '', location.pathname + location.search + '#analysis:' + tab);
+}
+
 /* ── Paper Portfolio Inner Sub-tabs ─────────────────────────── */
 const PP_TABS = ['overview','holdings','allocations','trades','performance','settings'];
 
@@ -263,6 +277,9 @@ document.addEventListener('DOMContentLoaded', function() {
     switchTab('paper');
     const sub = hash.includes(':') ? hash.split(':')[1] : 'overview';
     if (PP_TABS.includes(sub)) switchPaperTab(sub);
+  } else if (hash.startsWith('#analysis:')) {
+    const atab = hash.split(':')[1];
+    if (ANALYSIS_TABS.includes(atab)) switchAnalysisTab(atab);
   }
 
   // Paper Portfolio equity curve

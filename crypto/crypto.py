@@ -54,11 +54,19 @@ def main() -> None:
     log.info(f"Prices: {', '.join(f'{c.upper()}=${p:,.2f}' for c, p in prices.items())}")
     save_price_history(prices)
 
+    # Compute portfolio-relative trade sizing base
+    user_total = sum(portfolio[c]["amount"] * prices.get(c, 0) for c in portfolio)
+    paper_pre  = load_paper_portfolio()
+    pp_total   = paper_pre["config"]["total_value"] if paper_pre else 0
+    portfolio_value = max(pp_total, user_total, 100.0)
+    log.info(f"Trade sizing base: ${portfolio_value:,.2f} "
+             f"(user=${user_total:,.2f}, paper=${pp_total:,.2f})")
+
     all_signals  = []
-    all_signals += analyze_rebalance(portfolio, prices)           # portfolio only
-    all_signals += analyze_pairs(portfolio, prices, market_coins)
-    all_signals += analyze_arbitrage(portfolio, cross_prices, prices, market_coins)
-    all_signals += analyze_momentum(portfolio, prices, market_coins)
+    all_signals += analyze_rebalance(portfolio, prices)           # already portfolio-based
+    all_signals += analyze_pairs(portfolio, prices, market_coins, portfolio_value)
+    all_signals += analyze_arbitrage(portfolio, cross_prices, prices, market_coins, portfolio_value)
+    all_signals += analyze_momentum(portfolio, prices, market_coins, portfolio_value)
 
     ranked = score_and_rank(all_signals)
 
