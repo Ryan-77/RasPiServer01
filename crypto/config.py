@@ -35,7 +35,7 @@ PAPER_CASH_RESERVE_PCT       = float(os.getenv("PAPER_CASH_RESERVE_PCT",       "
 PAPER_STOP_LOSS_PCT          = float(os.getenv("PAPER_STOP_LOSS_PCT",          "10.0"))
 PAPER_TAKE_PROFIT_PCT        = float(os.getenv("PAPER_TAKE_PROFIT_PCT",        "25.0"))
 PAPER_MARGIN_LIMIT           = float(os.getenv("PAPER_MARGIN_LIMIT",           "0.30"))
-PAPER_REBALANCE_COOLDOWN_HRS = int(os.getenv("PAPER_REBALANCE_COOLDOWN_HRS",   "6"))
+PAPER_REBALANCE_COOLDOWN_HRS = int(os.getenv("PAPER_REBALANCE_COOLDOWN_HRS",   "1"))
 
 # ── COIN MAPS ────────────────────────────────────────────────────────────────
 # Internal id ↔ ticker mapping used by arbitrage graph (build_cross_prices / analyze_arbitrage)

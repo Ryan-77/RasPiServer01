@@ -338,17 +338,17 @@ def execute_paper_rebalance_trades(allocations: Dict[str, dict],
         drift = actual_pct - recommended_pct
         drifts[coin] = drift
 
-    # Check if any coin drifts enough to warrant rebalance (> 3%)
+    # Check if any coin drifts enough to warrant rebalance (> 2%)
     max_drift = max(abs(d) for d in drifts.values()) if drifts else 0
-    if max_drift < 3.0:
-        log.info(f"[PAPER] Max drift {max_drift:.1f}% < 3% threshold — no rebalance needed")
+    if max_drift < 2.0:
+        log.info(f"[PAPER] Max drift {max_drift:.1f}% < 2% threshold — no rebalance needed")
         return 0
 
     count = 0
     with get_db() as conn:
         # Phase 1: SELL overweight positions (free up cash)
         sells = sorted(
-            [(coin, drift) for coin, drift in drifts.items() if drift > 3.0],
+            [(coin, drift) for coin, drift in drifts.items() if drift > 2.0],
             key=lambda x: x[1], reverse=True  # sell most overweight first
         )
         for coin, drift in sells:
@@ -384,7 +384,7 @@ def execute_paper_rebalance_trades(allocations: Dict[str, dict],
 
         # Phase 2: BUY underweight positions (deploy freed cash)
         buys = sorted(
-            [(coin, drift) for coin, drift in drifts.items() if drift < -3.0],
+            [(coin, drift) for coin, drift in drifts.items() if drift < -2.0],
             key=lambda x: x[1]  # buy most underweight first
         )
         for coin, drift in buys:

@@ -136,10 +136,17 @@ function resetPaperPortfolio(): bool {
         db()->exec("DELETE FROM paper_portfolio_holdings");
         db()->exec("DELETE FROM paper_portfolio_allocations");
         db()->exec("DELETE FROM paper_portfolio_history");
-        db()->exec("DELETE FROM paper_trades");
         return true;
     } catch (Exception $e) {
         return false;
+    }
+}
+
+function clearPaperTrades(): int {
+    try {
+        return (int)db()->exec("DELETE FROM paper_trades");
+    } catch (Exception $e) {
+        return 0;
     }
 }
 

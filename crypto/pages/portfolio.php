@@ -428,13 +428,21 @@ $ppAllTradesD = array_merge($ppOpenTrades, $ppClosedTrades);
 <div class="panel">
   <div class="ph">
     <div class="ph-t" style="color:var(--pu)">TRADE HISTORY</div>
-    <div class="ph-m">
-      <?= count($ppOpenTrades) ?> OPEN ·
-      <?= count($ppClosedTrades) ?> CLOSED ·
-      P&amp;L:
-      <span style="color:<?= $ppTotalPnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>">
-        <?= $ppTotalPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($ppTotalPnl), 2) ?>
-      </span>
+    <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+      <div class="ph-m">
+        <?= count($ppOpenTrades) ?> OPEN ·
+        <?= count($ppClosedTrades) ?> CLOSED ·
+        P&amp;L:
+        <span style="color:<?= $ppTotalPnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>">
+          <?= $ppTotalPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($ppTotalPnl), 2) ?>
+        </span>
+      </div>
+      <?php if (!empty($ppAllTradesD)): ?>
+      <form method="POST" style="margin:0" onsubmit="return confirm('Clear all trade history? This cannot be undone.')">
+        <input type="hidden" name="action" value="clear_paper_trades">
+        <button type="submit" class="btn-del" style="font-size:.7rem;padding:3px 10px">CLEAR HISTORY</button>
+      </form>
+      <?php endif; ?>
     </div>
   </div>
 

@@ -54,6 +54,10 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $count = closeAllTrades();
         $_SESSION['flash'] = ['type'=>'ok','msg'=>"Closed $count trade(s)."];
         header('Location: ' . buildUrl(['view'=>'portfolio'])); exit;
+    } elseif ($action === 'clear_paper_trades') {
+        $count = clearPaperTrades();
+        $_SESSION['flash'] = ['type'=>'ok','msg'=>"Cleared {$count} trade record(s) from history."];
+        header('Location: ' . buildUrl(['view'=>'portfolio'])); exit;
     } elseif ($action === 'fund_paper') {
         $amount = (float)($_POST['amount'] ?? 1000);
         if ($amount < 100) $amount = 100;
