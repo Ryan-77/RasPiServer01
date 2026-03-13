@@ -446,7 +446,7 @@ $ppAllTradesD = array_merge($ppOpenTrades, $ppClosedTrades);
         <th class="sortable" data-col="date"     onclick="tradeSort(this)">DATE<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
         <th class="sortable" data-col="coin"     onclick="tradeSort(this)">COIN<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
         <th class="sortable" data-col="strategy" onclick="tradeSort(this)">STRATEGY<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
-        <th class="sortable" data-col="action"   onclick="tradeSort(this)">ACTION<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
+        <th class="sortable" data-col="action"   onclick="tradeSort(this)">POSITION / ORDER<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
         <th class="sortable" data-col="entry"    onclick="tradeSort(this)">ENTRY<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
         <th class="sortable" data-col="exit"     onclick="tradeSort(this)">EXIT / CURRENT<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
         <th class="sortable" data-col="size"     onclick="tradeSort(this)">SIZE (USD)<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
@@ -466,8 +466,10 @@ $ppAllTradesD = array_merge($ppOpenTrades, $ppClosedTrades);
         <td data-col="strategy" data-val="<?= h($t['strategy'] ?? 'unknown') ?>">
           <span style="font-size:.72rem;color:<?= strategyColor($t['strategy'] ?? '') ?>"><?= strtoupper(h($t['strategy'] ?? '—')) ?></span>
         </td>
-        <td data-col="action"   data-val="<?= h($t['action']) ?>">
-          <span class="<?= $t['action'] === 'buy' ? 'pnl-pos' : 'pnl-neg' ?>" style="font-weight:600"><?= strtoupper(h($t['action'])) ?></span>
+        <td data-col="action" data-val="<?= h($t['action']) ?>">
+          <?php $pm = positionMeta($t['action'], $t['strategy'] ?? ''); ?>
+          <span style="font-weight:700;color:<?= $pm['color'] ?>"><?= $pm['icon'] ?> <?= $pm['label'] ?></span>
+          <div style="font-size:.6rem;color:var(--t3);letter-spacing:.04em;margin-top:2px">MARKET</div>
         </td>
         <td data-col="entry"  data-val="<?= (float)$t['entry_price'] ?>" class="num">$<?= number_format((float)$t['entry_price'], 2) ?></td>
         <td data-col="exit"   data-val="<?= $exitVal !== null ? (float)$exitVal : 0 ?>" class="num">

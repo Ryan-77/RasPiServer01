@@ -33,6 +33,21 @@ function signalIcon(string $sig): string {
     return '—';
 }
 
+function positionMeta(string $action, string $strategy): array {
+    if ($strategy === 'rebalance') {
+        return [
+            'label' => $action === 'buy' ? 'ADD'       : 'TRIM',
+            'icon'  => $action === 'buy' ? '↑'         : '↓',
+            'color' => $action === 'buy' ? 'var(--gn)' : 'var(--yw)',
+        ];
+    }
+    return [
+        'label' => $action === 'buy' ? 'LONG'      : 'SHORT',
+        'icon'  => $action === 'buy' ? '↑'         : '↓',
+        'color' => $action === 'buy' ? 'var(--gn)' : 'var(--rd)',
+    ];
+}
+
 function tradeRow($t, $showClose = false) {
     $pnlClass  = $t['pnl_usd'] > 0 ? 'pnl-pos' : ($t['pnl_usd'] < 0 ? 'pnl-neg' : 'pnl-zero');
     $actColor  = $t['action'] === 'buy' ? 'var(--gn)' : 'var(--rd)';

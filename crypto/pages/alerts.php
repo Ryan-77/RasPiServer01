@@ -43,6 +43,31 @@
           <span class="coin-badge"><?= strtoupper(h($c)) ?></span>
           <?php endforeach ?>
         </div>
+        <?php
+          $alertSig = $al['signal'];
+          if ($alertSig !== 'hold' && $alertSig !== 'rebalance'):
+            $alDetails = json_decode($al['details'] ?? '{}', true);
+            $isPairs   = $al['strategy'] === 'pairs' && count($coins) === 2;
+        ?>
+        <div style="display:flex;gap:4px;flex-wrap:wrap;align-items:center;margin-top:2px">
+          <?php if ($isPairs): ?>
+            <?php
+              $actionA = $alDetails['action_a'] ?? $alertSig;
+              $actionB = $alDetails['action_b'] ?? ($alertSig === 'buy' ? 'sell' : 'buy');
+              $pmA = positionMeta($actionA, $al['strategy']);
+              $pmB = positionMeta($actionB, $al['strategy']);
+            ?>
+            <span class="pos-badge" style="background:<?= $pmA['color'] ?>22;color:<?= $pmA['color'] ?>;border-color:<?= $pmA['color'] ?>44"><?= $pmA['icon'] ?> <?= $pmA['label'] ?> <?= strtoupper(h($coins[0])) ?></span>
+            <span class="pos-badge" style="background:<?= $pmB['color'] ?>22;color:<?= $pmB['color'] ?>;border-color:<?= $pmB['color'] ?>44"><?= $pmB['icon'] ?> <?= $pmB['label'] ?> <?= strtoupper(h($coins[1])) ?></span>
+          <?php else: ?>
+            <?php $pm = positionMeta($alertSig, $al['strategy']); ?>
+            <?php foreach ($coins as $c): ?>
+            <span class="pos-badge" style="background:<?= $pm['color'] ?>22;color:<?= $pm['color'] ?>;border-color:<?= $pm['color'] ?>44"><?= $pm['icon'] ?> <?= $pm['label'] ?> <?= strtoupper(h($c)) ?></span>
+            <?php endforeach; ?>
+          <?php endif; ?>
+          <span style="font-size:.6rem;color:var(--t3);letter-spacing:.04em">MARKET</span>
+        </div>
+        <?php endif; ?>
         <div class="sig-signal" style="color:<?= $sigc ?>"><?= $icon ?> <?= h($al['signal']) ?></div>
         <div class="sig-sp"></div>
         <?php if ($al['expected_usd'] > 0): ?>

@@ -256,6 +256,9 @@ th.sortable:hover .sort-hint{opacity:.5}
 .sort-hint{font-size:.6rem;color:var(--t3);opacity:0;margin-left:2px;transition:opacity .1s}
 .trade-sort-bar{font-size:.65rem;color:var(--pu);letter-spacing:.06em;min-height:1em;margin-bottom:6px;text-align:right}
 
+/* Position / order type badges (trade history + alerts) */
+.pos-badge{font-size:.68rem;font-weight:600;letter-spacing:.04em;padding:2px 7px;border-radius:4px;border:1px solid transparent;white-space:nowrap}
+
 /* Responsive */
 @media(max-width:700px){
   .hdr{flex-direction:column;gap:14px;text-align:center}
