@@ -20,6 +20,27 @@ function switchTab(tab) {
   if (h) h.style.display = tab === 'holdings' ? 'block' : 'none';
   if (p) p.style.display = tab === 'paper' ? 'block' : 'none';
   history.replaceState(null, '', location.pathname + location.search + '#' + tab);
+
+  // Update hero value + meta based on active tab
+  const heroVal = document.getElementById('hero-value');
+  const heroPrimary = document.getElementById('hero-meta-primary');
+  const heroPaperRet = document.getElementById('hero-meta-paper-ret');
+  const heroPaperSep = document.getElementById('hero-meta-sep2');
+  if (heroVal) {
+    if (tab === 'paper' && heroVal.dataset.paper) {
+      heroVal.innerHTML = '<span style="color:var(--pu)">' + heroVal.dataset.paper + '</span>';
+    } else {
+      heroVal.innerHTML = heroVal.dataset.holdings || '<span style="color:var(--t3)">$0.00</span>';
+    }
+  }
+  if (heroPrimary) {
+    heroPrimary.textContent = tab === 'paper'
+      ? (heroPrimary.dataset.paperText || 'paper portfolio')
+      : (heroPrimary.dataset.holdingsText || '');
+  }
+  if (heroPaperRet) heroPaperRet.style.display = tab === 'paper' ? 'none' : '';
+  if (heroPaperSep) heroPaperSep.style.display = tab === 'paper' ? 'none' : '';
+
   // Canvas charts need visible parent to render — only redraw when overview sub-tab is active
   if (tab === 'paper') {
     const activePaper = document.querySelector('.pp-sub-tab.active');

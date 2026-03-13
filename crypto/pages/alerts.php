@@ -76,6 +76,6 @@
     <?= $openCount ?> open trade<?= $openCount !== 1 ? 's' : '' ?> · <?= count($closedTrades) ?> closed ·
     Total P&amp;L: <strong style="color:<?= $paperPnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>"><?= $paperPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($paperPnl), 2) ?></strong>
   </span>
-  <a href="<?= buildUrl(['view'=>'trades']) ?>" class="btn" style="font-size:.78rem;padding:6px 14px">View Trades</a>
+  <a href="<?= buildUrl(['view'=>'portfolio']) ?>#paper:trades" class="btn" style="font-size:.78rem;padding:6px 14px">View Trades</a>
 </div>
 <?php endif ?>

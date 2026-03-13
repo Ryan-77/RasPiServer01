@@ -49,15 +49,11 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
                 $_SESSION['flash'] = ['type'=>'ok','msg'=>'Trade closed at $' . number_format((float)$exitPrice, 2) . '.'];
             }
         }
-        header('Location: ' . buildUrl(['view'=>'trades'])); exit;
+        header('Location: ' . buildUrl(['view'=>'portfolio'])); exit;
     } elseif ($action === 'close_all_trades') {
         $count = closeAllTrades();
         $_SESSION['flash'] = ['type'=>'ok','msg'=>"Closed $count trade(s)."];
-        header('Location: ' . buildUrl(['view'=>'trades'])); exit;
-    } elseif ($action === 'reset_trades') {
-        resetTrades();
-        $_SESSION['flash'] = ['type'=>'ok','msg'=>'Paper trading history reset.'];
-        header('Location: ' . buildUrl(['view'=>'trades'])); exit;
+        header('Location: ' . buildUrl(['view'=>'portfolio'])); exit;
     } elseif ($action === 'fund_paper') {
         $amount = (float)($_POST['amount'] ?? 1000);
         if ($amount < 100) $amount = 100;
@@ -87,7 +83,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
 }
 
 // ── ROUTING ─────────────────────────────────────────────────
-$validViews = ['portfolio','analysis','log','alerts','trades'];
+$validViews = ['portfolio','analysis','log','alerts'];
 $view = in_array($_GET['view'] ?? '', $validViews) ? $_GET['view'] : 'portfolio';
 
 // ── PER-PAGE DATA LOADING ───────────────────────────────────
@@ -123,13 +119,6 @@ if ($view === 'portfolio') {
     $openTrades   = array_values(array_filter($allTrades, fn($t) => $t['status'] === 'open'));
     $closedTrades = array_values(array_filter($allTrades, fn($t) => $t['status'] === 'closed'));
     $paperPnl     = round(array_sum(array_column($allTrades, 'pnl_usd')), 2);
-} elseif ($view === 'trades') {
-    $allTrades    = computeTradePnl($allTrades, $latestPrices);
-    $openTrades   = array_values(array_filter($allTrades, fn($t) => $t['status'] === 'open'));
-    $closedTrades = array_values(array_filter($allTrades, fn($t) => $t['status'] === 'closed'));
-    $paperPnl     = round(array_sum(array_column($allTrades, 'pnl_usd')), 2);
-    $ptHistory    = getPaperTradingHistory(720);
-    $ppSummary    = getPaperPortfolioSummary($latestPrices);
 } elseif ($view === 'log') {
     $logContent = getLogContent($LOG_LINES);
     $logError   = $logContent === null ? 'Log file not found or cannot be read.' : null;
@@ -176,9 +165,6 @@ $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
   <a href="<?= buildUrl(['view'=>'analysis']) ?>" class="<?= $view==='analysis'?'active':'' ?>">ANALYSIS</a>
   <a href="<?= buildUrl(['view'=>'alerts']) ?>" class="<?= $view==='alerts'?'active':'' ?>">
     ALERTS<?php if ($unseenCount > 0): ?><span class="badge"><?= $unseenCount ?></span><?php endif ?>
-  </a>
-  <a href="<?= buildUrl(['view'=>'trades']) ?>" class="<?= $view==='trades'?'active':'' ?>">
-    TRADES<?php if ($openCount > 0): ?><span class="badge" style="background:var(--gn);color:#000"><?= $openCount ?></span><?php endif ?>
   </a>
   <a href="<?= buildUrl(['view'=>'log']) ?>" class="<?= $view==='log'?'active':'' ?>">LOG</a>
   <div class="nav-sp"></div>
