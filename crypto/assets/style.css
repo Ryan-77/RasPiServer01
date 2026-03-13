@@ -282,11 +282,13 @@ th.sortable:hover .sort-hint{opacity:.5}
   font-size:.72rem;font-weight:600;white-space:nowrap;letter-spacing:.03em}
 
 /* ── Analysis: Sub-tabs ─────────────────────────────────── */
+.analysis-tabs{flex-wrap:wrap}
+.analysis-tabs .sub-tab{flex:0 1 auto;padding:8px 14px}
 .analysis-tabs .sub-tab.active{background:var(--ac);color:#fff}
 .atab-count{display:inline-flex;align-items:center;justify-content:center;min-width:16px;
             height:16px;padding:0 4px;border-radius:8px;font-size:.6rem;font-weight:700;
-            background:rgba(255,255,255,.2);margin-left:4px;vertical-align:middle}
-.analysis-tabs .sub-tab.active .atab-count{background:rgba(255,255,255,.25)}
+            background:var(--s3);color:var(--t2);margin-left:4px;vertical-align:middle}
+.analysis-tabs .sub-tab.active .atab-count{background:rgba(255,255,255,.25);color:#fff}
 
 /* ── Analysis: Strategy Cards ───────────────────────────── */
 .strategy-card{margin-top:14px}

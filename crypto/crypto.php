@@ -199,7 +199,7 @@ $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
 </div>
 
 <script>
-const APP_DATA = { ppFundedAmount: <?= isset($ppCfg) && !empty($ppCfg) ? (float)($ppCfg['total_value'] ?? $ppCfg['funded_amount'] ?? 1000) : 1000 ?> };
+const APP_DATA = { ppFundedAmount: <?= isset($ppSummary) && ($ppSummary['funded'] ?? false) ? (float)($ppSummary['config']['funded_amount'] ?? 1000) : 1000 ?> };
 </script>
 <script src="assets/app.js"></script>
 </body>

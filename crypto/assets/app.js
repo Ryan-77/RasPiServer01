@@ -193,12 +193,17 @@ function drawEquityChart(canvas, data, opts) {
     ctx.setLineDash([]);
   }
 
-  // Draw line helper
+  // Draw line helper — tracks path start to avoid spike from origin on null-prefixed arrays
   function drawLine(values, color, width) {
     if (!values || values.length < 2) return;
     ctx.strokeStyle = color; ctx.lineWidth = width; ctx.beginPath();
-    values.forEach((v, i) => { if (v === null) return; const fn = i === 0 ? 'moveTo' : 'lineTo'; ctx[fn](toX(i), toY(v)); });
-    ctx.stroke();
+    let started = false;
+    values.forEach((v, i) => {
+      if (v === null) return;
+      ctx[started ? 'lineTo' : 'moveTo'](toX(i), toY(v));
+      started = true;
+    });
+    if (started) ctx.stroke();
   }
 
   // Benchmark lines
