@@ -33,23 +33,54 @@ try {
 
 <!-- HERO -->
 <div class="hero">
-  <div class="hero-value">
+  <div class="hero-value" id="hero-value">
     <?= $totalUsd > 0 ? '$'.number_format($totalUsd, 2) : '<span style="color:var(--t3)">$0.00</span>' ?>
   </div>
-  <div class="hero-meta">
-    <span><?= $coinCount ?> asset<?= $coinCount !== 1 ? 's' : '' ?></span>
+  <div class="hero-meta" id="hero-meta">
+    <span id="hero-meta-primary"><?= $coinCount ?> asset<?= $coinCount !== 1 ? 's' : '' ?></span>
     <span class="hero-sep">·</span>
     <?php if ($ppFunded): ?>
-    <span style="color:var(--pu)">
+    <span style="color:var(--pu)" id="hero-meta-paper-ret">
       Paper: <?= $ppRet >= 0 ? '+' : '' ?><?= number_format($ppRet, 1) ?>%
     </span>
-    <span class="hero-sep">·</span>
+    <span class="hero-sep" id="hero-meta-sep2">·</span>
     <?php endif; ?>
     <span>
       <?= $recentSig ? 'Last analysis: ' . date('H:i', strtotime($recentSig)) . ' UTC' : 'No analysis yet' ?>
     </span>
   </div>
 </div>
+<script>
+(function(){
+  var holdingsVal = <?= json_encode($totalUsd > 0 ? '$' . number_format($totalUsd, 2) : '$0.00') ?>;
+  var paperVal    = <?= $ppFunded ? json_encode('$' . number_format($ppCfg['total_value'] ?? 0, 2)) : 'null' ?>;
+  var holdingsMeta = <?= json_encode($coinCount . ' asset' . ($coinCount !== 1 ? 's' : '')) ?>;
+  var paperMeta   = <?= $ppFunded ? json_encode(number_format($ppCfg['total_value'] ?? 0, 2) . ' total · ' . ($ppRet >= 0 ? '+' : '') . number_format($ppRet, 1) . '% return') : 'null' ?>;
+
+  var heroVal  = document.getElementById('hero-value');
+  var heroPrimary = document.getElementById('hero-meta-primary');
+  var heroPaperRet = document.getElementById('hero-meta-paper-ret');
+  var heroPaperSep = document.getElementById('hero-meta-sep2');
+
+  // Patch switchTab to also update the hero
+  var _origSwitchTab = window.switchTab;
+  window.switchTab = function(tab) {
+    if (_origSwitchTab) _origSwitchTab(tab);
+    if (!heroVal) return;
+    if (tab === 'paper' && paperVal !== null) {
+      heroVal.innerHTML = '<span style="color:var(--pu)">' + paperVal + '</span>';
+      if (heroPrimary) heroPrimary.textContent = 'paper portfolio';
+      if (heroPaperRet) heroPaperRet.style.display = 'none';
+      if (heroPaperSep) heroPaperSep.style.display = 'none';
+    } else {
+      heroVal.innerHTML = holdingsVal;
+      if (heroPrimary) heroPrimary.textContent = holdingsMeta;
+      if (heroPaperRet) heroPaperRet.style.display = '';
+      if (heroPaperSep) heroPaperSep.style.display = '';
+    }
+  };
+})();
+</script>
 
 <!-- SUB-TABS -->
 <div class="sub-tabs">
