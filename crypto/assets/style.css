@@ -242,6 +242,20 @@ details[open] summary::before{content:'▼ '}
 .pstat-v{font-size:1.5rem;font-weight:700;line-height:1.2}
 .pstat-s{font-size:.75rem;color:var(--t3);margin-top:6px}
 
+/* Paper portfolio inner sub-tabs */
+.pp-sub-tabs{display:flex;gap:4px;padding:10px 0 14px 0;border-bottom:1px solid var(--b1);margin-bottom:14px;flex-wrap:wrap}
+.pp-sub-tab{background:none;border:1px solid var(--b2);color:var(--t3);font-family:var(--font);font-size:.68rem;letter-spacing:.08em;padding:5px 12px;border-radius:6px;cursor:pointer;transition:all .15s}
+.pp-sub-tab:hover{color:var(--t1);border-color:var(--t3)}
+.pp-sub-tab.active{background:var(--pu);border-color:var(--pu);color:#fff}
+
+/* Sortable table headers */
+th.sortable{cursor:pointer;user-select:none;white-space:nowrap}
+th.sortable:hover{color:var(--t1)}
+th.sortable .sort-lbl{font-size:.6rem;color:var(--pu);font-weight:400;letter-spacing:.03em}
+th.sortable:hover .sort-hint{opacity:.5}
+.sort-hint{font-size:.6rem;color:var(--t3);opacity:0;margin-left:2px;transition:opacity .1s}
+.trade-sort-bar{font-size:.65rem;color:var(--pu);letter-spacing:.06em;min-height:1em;margin-bottom:6px;text-align:right}
+
 /* Responsive */
 @media(max-width:700px){
   .hdr{flex-direction:column;gap:14px;text-align:center}
@@ -253,4 +267,5 @@ details[open] summary::before{content:'▼ '}
   .form-row{flex-direction:column}
   .hero-value{font-size:2rem}
   .sub-tabs{flex-direction:column}
+  .pp-sub-tabs{gap:3px}
 }

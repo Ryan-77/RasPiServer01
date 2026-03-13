@@ -34,6 +34,7 @@ def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -
         # Load paper portfolio for portfolio-aware sizing
         pp_cfg = conn.execute("SELECT * FROM paper_portfolio_config WHERE id=1").fetchone()
         pp_active = pp_cfg and pp_cfg["status"] == "active"
+        pp_paused = pp_cfg and pp_cfg["status"] == "paused"
 
         for sig in actionable:
             coins_str = ",".join(sig["coins"])
@@ -57,14 +58,19 @@ def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -
             count += 1
             log.info(f"[ALERT] #{alert_id} {sig['strategy'].upper()} {coins_str} → {sig['signal']} strength={sig['strength']:.3f}")
 
-            # Position sizing — portfolio-aware if paper portfolio is active
-            if pp_active:
-                # Risk 2-10% of portfolio per trade, scaled by signal strength
+            # Skip paper trade creation entirely when portfolio is paused
+            if pp_paused:
+                log.info(f"[TRADE] Skipped — portfolio is paused")
+                continue
+
+            # Position sizing — portfolio-aware whenever pp_cfg exists (active or paused),
+            # falls back to legacy flat sizing only when no portfolio is configured at all
+            if pp_cfg:
                 pp_total = pp_cfg["total_value"] or PAPER_PORTFOLIO_DEFAULT_FUND
                 notional_base = round(pp_total * sig["strength"] * 0.10, 2)
                 notional_base = max(notional_base, 10.0)  # minimum $10 trade
             else:
-                # Legacy flat sizing
+                # Legacy flat sizing — no paper portfolio configured
                 notional_base = round(BASE_PAPER_TRADE * sig["strength"], 2)
 
             # Paper trades — rebalance and momentum: single coin

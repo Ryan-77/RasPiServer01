@@ -20,11 +20,95 @@ function switchTab(tab) {
   if (h) h.style.display = tab === 'holdings' ? 'block' : 'none';
   if (p) p.style.display = tab === 'paper' ? 'block' : 'none';
   history.replaceState(null, '', location.pathname + location.search + '#' + tab);
-  // Canvas charts need visible parent to render — trigger redraw on paper tab
+  // Canvas charts need visible parent to render — only redraw when overview sub-tab is active
   if (tab === 'paper') {
+    const activePaper = document.querySelector('.pp-sub-tab.active');
+    if (!activePaper || activePaper.dataset.ptab === 'overview') {
+      const activeBtn = document.querySelector('#pp-tf-btns .tf-btn.active');
+      if (activeBtn) activeBtn.click();
+    }
+  }
+}
+
+/* ── Paper Portfolio Inner Sub-tabs ─────────────────────────── */
+const PP_TABS = ['overview','holdings','allocations','trades','performance','settings'];
+
+function switchPaperTab(tab) {
+  document.querySelectorAll('.pp-sub-tab').forEach(b => b.classList.remove('active'));
+  const btn = document.querySelector('.pp-sub-tab[data-ptab="' + tab + '"]');
+  if (btn) btn.classList.add('active');
+  PP_TABS.forEach(t => {
+    const el = document.getElementById('pp-tab-' + t);
+    if (el) el.style.display = t === tab ? 'block' : 'none';
+  });
+  history.replaceState(null, '', location.pathname + location.search + '#paper:' + tab);
+  // Trigger chart redraw when switching to overview
+  if (tab === 'overview') {
     const activeBtn = document.querySelector('#pp-tf-btns .tf-btn.active');
     if (activeBtn) activeBtn.click();
   }
+  // Init sort on trades tab first visit
+  if (tab === 'trades' && !_tradeSortInited) {
+    initTradeSort('pp-trades-table');
+    _tradeSortInited = true;
+  }
+}
+
+/* ── Trade History Sort ──────────────────────────────────────── */
+const SORT_CYCLE = ['auto','asc','desc','first-last','last-first'];
+const _tradeSortState = {};
+let _tradeOrigOrder = [];
+let _tradeSortInited = false;
+
+function initTradeSort(tableId) {
+  const tbody = document.querySelector('#' + tableId + ' tbody');
+  if (!tbody) return;
+  _tradeOrigOrder = Array.from(tbody.querySelectorAll('tr'));
+}
+
+function tradeSort(th) {
+  const col = th.dataset.col;
+  const cur = _tradeSortState[col] || 'auto';
+  const next = SORT_CYCLE[(SORT_CYCLE.indexOf(cur) + 1) % SORT_CYCLE.length];
+  // Reset all header labels
+  th.closest('thead').querySelectorAll('th[data-col]').forEach(h => {
+    delete _tradeSortState[h.dataset.col];
+    const lbl = h.querySelector('.sort-lbl');
+    if (lbl) lbl.textContent = '';
+    h.removeAttribute('data-sort-active');
+  });
+  _tradeSortState[col] = next;
+  const lbl = th.querySelector('.sort-lbl');
+  if (lbl) lbl.textContent = next !== 'auto' ? ' [' + next + ']' : '';
+  if (next !== 'auto') th.setAttribute('data-sort-active', '1');
+  // Update status bar
+  const status = document.getElementById('trade-sort-status');
+  if (status) status.textContent = next !== 'auto'
+    ? 'SORTED BY: ' + col.toUpperCase() + ' · ' + next.toUpperCase()
+    : '';
+  applyTradeSort(th.closest('table').querySelector('tbody'), col, next);
+}
+
+function applyTradeSort(tbody, col, state) {
+  let rows;
+  if (state === 'first-last') {
+    rows = [..._tradeOrigOrder];
+  } else if (state === 'last-first') {
+    rows = [..._tradeOrigOrder].slice().reverse();
+  } else if (state === 'auto') {
+    rows = [..._tradeOrigOrder];
+  } else {
+    rows = Array.from(tbody.querySelectorAll('tr')).sort((a, b) => {
+      const atd = a.querySelector('td[data-col="' + col + '"]');
+      const btd = b.querySelector('td[data-col="' + col + '"]');
+      const av = atd ? atd.dataset.val ?? '' : '';
+      const bv = btd ? btd.dataset.val ?? '' : '';
+      const an = parseFloat(av), bn = parseFloat(bv);
+      const cmp = !isNaN(an) && !isNaN(bn) ? an - bn : String(av).localeCompare(String(bv));
+      return state === 'asc' ? cmp : -cmp;
+    });
+  }
+  rows.forEach(r => tbody.appendChild(r));
 }
 
 /* ── Equity Chart Engine ──────────────────────────────────────── */
@@ -150,10 +234,15 @@ function setupChartButtons(btnContainerId, canvasId, apiEndpoint, opts) {
   if (activeBtn) loadChart(parseInt(activeBtn.dataset.hours));
 }
 
-/* ── Initialize charts on page load ────────────────────────── */
+/* ── Initialize on page load ─────────────────────────────────── */
 document.addEventListener('DOMContentLoaded', function() {
-  // Check URL hash for direct tab linking
-  if (window.location.hash === '#paper') switchTab('paper');
+  // Parse URL hash for direct tab/sub-tab linking
+  const hash = window.location.hash;
+  if (hash.startsWith('#paper')) {
+    switchTab('paper');
+    const sub = hash.includes(':') ? hash.split(':')[1] : 'overview';
+    if (PP_TABS.includes(sub)) switchPaperTab(sub);
+  }
 
   // Paper Portfolio equity curve
   if (document.getElementById('pp-equity-chart')) {

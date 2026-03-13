@@ -228,7 +228,24 @@ try {
   </form>
 </div>
 
-<!-- Summary stats -->
+<!-- Inner sub-tab navigation -->
+<div class="pp-sub-tabs">
+  <button class="pp-sub-tab active" data-ptab="overview"     onclick="switchPaperTab('overview')">OVERVIEW</button>
+  <button class="pp-sub-tab"        data-ptab="holdings"     onclick="switchPaperTab('holdings')">HOLDINGS</button>
+  <button class="pp-sub-tab"        data-ptab="allocations"  onclick="switchPaperTab('allocations')">ALLOCATIONS</button>
+  <button class="pp-sub-tab"        data-ptab="trades"       onclick="switchPaperTab('trades')">
+    TRADES
+    <?php if (!empty($ppOpenTrades)): ?>
+    <span style="display:inline-block;background:var(--gn);color:#000;font-size:.58rem;padding:1px 5px;border-radius:3px;margin-left:4px;vertical-align:middle"><?= count($ppOpenTrades) ?></span>
+    <?php endif; ?>
+  </button>
+  <button class="pp-sub-tab"        data-ptab="performance"  onclick="switchPaperTab('performance')">PERFORMANCE</button>
+  <button class="pp-sub-tab"        data-ptab="settings"     onclick="switchPaperTab('settings')">SETTINGS</button>
+</div>
+
+<!-- ── OVERVIEW: stats + equity curve ─────────────────────── -->
+<div id="pp-tab-overview">
+
 <div class="pp-stats">
   <div class="pp-stat">
     <div class="pp-stat-l">TOTAL VALUE</div>
@@ -272,9 +289,37 @@ try {
   </div>
 </div>
 
-<!-- Holdings Table -->
+<div class="panel">
+  <div class="ph">
+    <div class="ph-t" style="color:var(--pu)">EQUITY CURVE</div>
+    <div class="ph-m"><?= count($ppHistory) ?> DATA POINT<?= count($ppHistory) !== 1 ? 'S' : '' ?></div>
+  </div>
+  <div style="padding:14px 16px">
+    <div class="tf-btns" id="pp-tf-btns">
+      <button class="tf-btn" data-hours="24">24H</button>
+      <button class="tf-btn" data-hours="168">1W</button>
+      <button class="tf-btn active" data-hours="720">1M</button>
+      <button class="tf-btn" data-hours="2160">3M</button>
+      <button class="tf-btn" data-hours="4380">6M</button>
+      <button class="tf-btn" data-hours="8760">1Y</button>
+    </div>
+    <canvas id="pp-equity-chart" style="width:100%;height:180px"></canvas>
+    <div style="display:flex;gap:14px;justify-content:center;font-size:.68rem;color:var(--t3);margin-top:6px">
+      <span><span style="color:var(--pu)">●</span> portfolio</span>
+      <span><span style="color:var(--or)">●</span> BTC benchmark</span>
+      <span><span style="color:#60a5fa">●</span> equal-weight</span>
+      <span><span style="color:var(--b2)">- -</span> funded ($<?= number_format($ppCfg['funded_amount'] ?? 0, 0) ?>)</span>
+    </div>
+  </div>
+</div>
+
+</div><!-- /pp-tab-overview -->
+
+<!-- ── HOLDINGS ────────────────────────────────────────────── -->
+<div id="pp-tab-holdings" style="display:none">
+
 <?php if (!empty($ppHold)): ?>
-<div class="panel" style="margin-bottom:14px">
+<div class="panel">
   <div class="ph">
     <div class="ph-t" style="color:var(--pu)">HOLDINGS</div>
     <div class="ph-m"><?= count($ppHold) ?> POSITION<?= count($ppHold) !== 1 ? 'S' : '' ?></div>
@@ -307,11 +352,23 @@ try {
     </table>
   </div>
 </div>
+<?php else: ?>
+<div class="panel">
+  <div class="state">
+    <div class="state-i"></div>
+    <div class="state-t">NO POSITIONS YET</div>
+    <div class="state-s">Holdings will appear once the engine opens trades</div>
+  </div>
+</div>
 <?php endif; ?>
 
-<!-- Recommended Allocations -->
+</div><!-- /pp-tab-holdings -->
+
+<!-- ── ALLOCATIONS ────────────────────────────────────────── -->
+<div id="pp-tab-allocations" style="display:none">
+
 <?php if (!empty($ppAlloc)): ?>
-<div class="panel" style="margin-bottom:14px">
+<div class="panel">
   <div class="ph">
     <div class="ph-t" style="color:var(--pu)">RECOMMENDED ALLOCATIONS</div>
     <div class="ph-m">CASH RESERVE: <?= number_format($ppSet['cash_reserve_pct'], 0) ?>%</div>
@@ -344,86 +401,107 @@ try {
     </div>
   </div>
 </div>
+<?php else: ?>
+<div class="panel">
+  <div class="state">
+    <div class="state-i"></div>
+    <div class="state-t">NO ALLOCATIONS YET</div>
+    <div class="state-s">Recommended allocations appear after the first analysis run</div>
+  </div>
+</div>
 <?php endif; ?>
 
-<!-- Equity Curve (JS Canvas) -->
-<div class="panel" style="margin-bottom:14px">
-  <div class="ph">
-    <div class="ph-t" style="color:var(--pu)">EQUITY CURVE</div>
-    <div class="ph-m"><?= count($ppHistory) ?> DATA POINT<?= count($ppHistory) !== 1 ? 'S' : '' ?></div>
-  </div>
-  <div style="padding:14px 16px">
-    <div class="tf-btns" id="pp-tf-btns">
-      <button class="tf-btn" data-hours="24">24H</button>
-      <button class="tf-btn" data-hours="168">1W</button>
-      <button class="tf-btn active" data-hours="720">1M</button>
-      <button class="tf-btn" data-hours="2160">3M</button>
-      <button class="tf-btn" data-hours="4380">6M</button>
-      <button class="tf-btn" data-hours="8760">1Y</button>
-    </div>
-    <canvas id="pp-equity-chart" style="width:100%;height:180px"></canvas>
-    <div style="display:flex;gap:14px;justify-content:center;font-size:.68rem;color:var(--t3);margin-top:6px">
-      <span><span style="color:var(--pu)">●</span> portfolio</span>
-      <span><span style="color:var(--or)">●</span> BTC benchmark</span>
-      <span><span style="color:#60a5fa">●</span> equal-weight</span>
-      <span><span style="color:var(--b2)">- -</span> funded ($<?= number_format($ppCfg['funded_amount'] ?? 0, 0) ?>)</span>
-    </div>
-  </div>
-</div>
+</div><!-- /pp-tab-allocations -->
 
-<!-- Risk & Margin Panel -->
-<div class="panel" style="margin-bottom:14px">
-  <div class="ph">
-    <div class="ph-t" style="color:var(--pu)">RISK MANAGEMENT</div>
-  </div>
-  <div style="padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">
-    <!-- Margin bar -->
-    <div>
-      <div style="font-size:.72rem;color:var(--t3);margin-bottom:6px;font-weight:500">MARGIN USAGE</div>
-      <?php
-        $marginTotal = $ppSet['margin_limit'] * $ppCfg['funded_amount'];
-        $cashPct = $marginTotal > 0 ? min(100, max(0, ($ppCfg['cash_balance'] / ($ppCfg['funded_amount'] + $marginTotal)) * 100)) : 0;
-        $barColor = $ppRisk['is_on_margin'] ? 'var(--rd)' : ($ppCfg['cash_balance'] < $ppCfg['funded_amount'] * 0.1 ? 'var(--yw)' : 'var(--gn)');
-      ?>
-      <div class="margin-bar">
-        <div class="margin-fill" style="width:<?= max(5, $cashPct) ?>%;background:<?= $barColor ?>"></div>
-      </div>
-      <div style="font-size:.68rem;color:var(--t3);margin-top:4px">
-        Cash: $<?= number_format(max(0, $ppCfg['cash_balance']), 2) ?> ·
-        Margin avail: $<?= number_format($ppRisk['margin_available'], 2) ?>
-      </div>
-    </div>
-    <!-- Settings -->
-    <div>
-      <div style="font-size:.72rem;color:var(--t3);margin-bottom:6px;font-weight:500">CURRENT SETTINGS</div>
-      <div style="font-size:.82rem;color:var(--t2);line-height:2">
-        Stop-Loss: <strong style="color:var(--rd)"><?= number_format($ppSet['stop_loss_pct'], 0) ?>%</strong> ·
-        Take-Profit: <strong style="color:var(--gn)"><?= number_format($ppSet['take_profit_pct'], 0) ?>%</strong> ·
-        Cash Reserve: <strong style="color:var(--t1)"><?= number_format($ppSet['cash_reserve_pct'], 0) ?>%</strong>
-      </div>
-    </div>
-    <!-- Update settings form -->
-    <div>
-      <div style="font-size:.72rem;color:var(--t3);margin-bottom:6px;font-weight:500">ADJUST SETTINGS</div>
-      <form method="POST" style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">
-        <input type="hidden" name="action" value="update_paper_settings">
-        <input type="number" name="stop_loss_pct" placeholder="SL %" step="1" min="1" max="50" value="<?= (int)$ppSet['stop_loss_pct'] ?>"
-               style="width:60px;background:var(--s1);border:1px solid var(--b2);color:var(--t1);padding:5px 8px;border-radius:6px;font-size:.78rem;font-family:var(--font)">
-        <input type="number" name="take_profit_pct" placeholder="TP %" step="1" min="5" max="200" value="<?= (int)$ppSet['take_profit_pct'] ?>"
-               style="width:60px;background:var(--s1);border:1px solid var(--b2);color:var(--t1);padding:5px 8px;border-radius:6px;font-size:.78rem;font-family:var(--font)">
-        <input type="number" name="cash_reserve_pct" placeholder="Cash %" step="1" min="0" max="50" value="<?= (int)$ppSet['cash_reserve_pct'] ?>"
-               style="width:60px;background:var(--s1);border:1px solid var(--b2);color:var(--t1);padding:5px 8px;border-radius:6px;font-size:.78rem;font-family:var(--font)">
-        <button type="submit" class="btn btn-g" style="font-size:.72rem;padding:5px 10px">SAVE</button>
-      </form>
-    </div>
-  </div>
-</div>
+<!-- ── TRADES ─────────────────────────────────────────────── -->
+<div id="pp-tab-trades" style="display:none">
 
-<!-- Performance Attribution -->
 <?php
-$ppPerf = getPaperPortfolioPerformance();
-if (!empty($ppPerf)):
+$ppTotalPnl   = round(array_sum(array_column($allTrades, 'pnl_usd')), 2);
+$ppAllTradesD = array_merge($ppOpenTrades, $ppClosedTrades);
 ?>
+
+<div class="panel">
+  <div class="ph">
+    <div class="ph-t" style="color:var(--pu)">TRADE HISTORY</div>
+    <div class="ph-m">
+      <?= count($ppOpenTrades) ?> OPEN ·
+      <?= count($ppClosedTrades) ?> CLOSED ·
+      P&amp;L:
+      <span style="color:<?= $ppTotalPnl >= 0 ? 'var(--gn)' : 'var(--rd)' ?>">
+        <?= $ppTotalPnl >= 0 ? '+' : '' ?>$<?= number_format(abs($ppTotalPnl), 2) ?>
+      </span>
+    </div>
+  </div>
+
+  <?php if (!empty($ppAllTradesD)): ?>
+  <div class="trade-sort-bar" id="trade-sort-status"></div>
+  <div class="tbl-wrap">
+    <table id="pp-trades-table">
+      <thead><tr>
+        <th class="sortable" data-col="date"     onclick="tradeSort(this)">DATE<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
+        <th class="sortable" data-col="coin"     onclick="tradeSort(this)">COIN<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
+        <th class="sortable" data-col="strategy" onclick="tradeSort(this)">STRATEGY<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
+        <th class="sortable" data-col="action"   onclick="tradeSort(this)">ACTION<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
+        <th class="sortable" data-col="entry"    onclick="tradeSort(this)">ENTRY<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
+        <th class="sortable" data-col="exit"     onclick="tradeSort(this)">EXIT / CURRENT<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
+        <th class="sortable" data-col="size"     onclick="tradeSort(this)">SIZE (USD)<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
+        <th class="sortable" data-col="pnl"      onclick="tradeSort(this)">P&amp;L<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
+        <th class="sortable" data-col="status"   onclick="tradeSort(this)">STATUS<span class="sort-lbl"></span><span class="sort-hint">⇅</span></th>
+      </tr></thead>
+      <tbody>
+      <?php foreach ($ppAllTradesD as $t):
+        $pnlClass = $t['pnl_usd'] > 0 ? 'pnl-pos' : ($t['pnl_usd'] < 0 ? 'pnl-neg' : 'pnl-zero');
+        $exitVal  = $t['status'] === 'closed' ? $t['exit_price'] : $t['current_price'];
+        $dateStr  = date('Y-m-d H:i', strtotime($t['timestamp']));
+        $dateSort = strtotime($t['timestamp']);
+      ?>
+      <tr>
+        <td data-col="date"     data-val="<?= $dateSort ?>"><span style="font-size:.75rem;color:var(--t3)"><?= $dateStr ?></span></td>
+        <td data-col="coin"     data-val="<?= h($t['coin']) ?>" style="font-weight:700;color:var(--pu)"><?= strtoupper(h($t['coin'])) ?></td>
+        <td data-col="strategy" data-val="<?= h($t['strategy'] ?? 'unknown') ?>">
+          <span style="font-size:.72rem;color:<?= strategyColor($t['strategy'] ?? '') ?>"><?= strtoupper(h($t['strategy'] ?? '—')) ?></span>
+        </td>
+        <td data-col="action"   data-val="<?= h($t['action']) ?>">
+          <span class="<?= $t['action'] === 'buy' ? 'pnl-pos' : 'pnl-neg' ?>" style="font-weight:600"><?= strtoupper(h($t['action'])) ?></span>
+        </td>
+        <td data-col="entry"  data-val="<?= (float)$t['entry_price'] ?>" class="num">$<?= number_format((float)$t['entry_price'], 2) ?></td>
+        <td data-col="exit"   data-val="<?= $exitVal !== null ? (float)$exitVal : 0 ?>" class="num">
+          <?= $exitVal !== null ? '$'.number_format((float)$exitVal, 2) : '<span class="na">—</span>' ?>
+          <?php if ($t['status'] === 'open'): ?>
+          <span class="na" style="font-size:.65rem"> live</span>
+          <?php endif; ?>
+        </td>
+        <td data-col="size"   data-val="<?= (float)$t['amount_usd'] ?>" class="num">$<?= number_format((float)$t['amount_usd'], 2) ?></td>
+        <td data-col="pnl"    data-val="<?= $t['pnl_usd'] ?>" class="num <?= $pnlClass ?>">
+          <?= $t['pnl_usd'] >= 0 ? '+' : '' ?>$<?= number_format(abs($t['pnl_usd']), 2) ?>
+        </td>
+        <td data-col="status" data-val="<?= h($t['status']) ?>">
+          <span style="font-size:.68rem;color:<?= $t['status'] === 'open' ? 'var(--gn)' : 'var(--t3)' ?>;letter-spacing:.05em">
+            <?= strtoupper(h($t['status'])) ?>
+          </span>
+        </td>
+      </tr>
+      <?php endforeach; ?>
+      </tbody>
+    </table>
+  </div>
+  <?php else: ?>
+  <div class="state">
+    <div class="state-i"></div>
+    <div class="state-t">NO TRADES YET</div>
+    <div class="state-s">Trades will appear once the analysis engine generates signals</div>
+  </div>
+  <?php endif; ?>
+</div>
+
+</div><!-- /pp-tab-trades -->
+
+<!-- ── PERFORMANCE ────────────────────────────────────────── -->
+<div id="pp-tab-performance" style="display:none">
+
+<?php $ppPerf = getPaperPortfolioPerformance(); ?>
+<?php if (!empty($ppPerf)): ?>
 <div class="panel">
   <div class="ph">
     <div class="ph-t" style="color:var(--pu)">STRATEGY ATTRIBUTION</div>
@@ -444,7 +522,67 @@ if (!empty($ppPerf)):
     <?php endforeach; ?>
   </div>
 </div>
+<?php else: ?>
+<div class="panel">
+  <div class="state">
+    <div class="state-i"></div>
+    <div class="state-t">NO PERFORMANCE DATA YET</div>
+    <div class="state-s">Strategy attribution appears once trades have been closed</div>
+  </div>
+</div>
 <?php endif; ?>
+
+</div><!-- /pp-tab-performance -->
+
+<!-- ── SETTINGS ───────────────────────────────────────────── -->
+<div id="pp-tab-settings" style="display:none">
+
+<div class="panel">
+  <div class="ph">
+    <div class="ph-t" style="color:var(--pu)">RISK MANAGEMENT</div>
+  </div>
+  <div style="padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:14px">
+    <div>
+      <div style="font-size:.72rem;color:var(--t3);margin-bottom:6px;font-weight:500">MARGIN USAGE</div>
+      <?php
+        $marginTotal = $ppSet['margin_limit'] * $ppCfg['funded_amount'];
+        $cashPct = $marginTotal > 0 ? min(100, max(0, ($ppCfg['cash_balance'] / ($ppCfg['funded_amount'] + $marginTotal)) * 100)) : 0;
+        $barColor = $ppRisk['is_on_margin'] ? 'var(--rd)' : ($ppCfg['cash_balance'] < $ppCfg['funded_amount'] * 0.1 ? 'var(--yw)' : 'var(--gn)');
+      ?>
+      <div class="margin-bar">
+        <div class="margin-fill" style="width:<?= max(5, $cashPct) ?>%;background:<?= $barColor ?>"></div>
+      </div>
+      <div style="font-size:.68rem;color:var(--t3);margin-top:4px">
+        Cash: $<?= number_format(max(0, $ppCfg['cash_balance']), 2) ?> ·
+        Margin avail: $<?= number_format($ppRisk['margin_available'], 2) ?>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:.72rem;color:var(--t3);margin-bottom:6px;font-weight:500">CURRENT SETTINGS</div>
+      <div style="font-size:.82rem;color:var(--t2);line-height:2">
+        Stop-Loss: <strong style="color:var(--rd)"><?= number_format($ppSet['stop_loss_pct'], 0) ?>%</strong> ·
+        Take-Profit: <strong style="color:var(--gn)"><?= number_format($ppSet['take_profit_pct'], 0) ?>%</strong> ·
+        Cash Reserve: <strong style="color:var(--t1)"><?= number_format($ppSet['cash_reserve_pct'], 0) ?>%</strong>
+      </div>
+    </div>
+    <div>
+      <div style="font-size:.72rem;color:var(--t3);margin-bottom:6px;font-weight:500">ADJUST SETTINGS</div>
+      <form method="POST" style="display:flex;gap:6px;flex-wrap:wrap;align-items:flex-end">
+        <input type="hidden" name="action" value="update_paper_settings">
+        <input type="number" name="stop_loss_pct" placeholder="SL %" step="1" min="1" max="50" value="<?= (int)$ppSet['stop_loss_pct'] ?>"
+               style="width:60px;background:var(--s1);border:1px solid var(--b2);color:var(--t1);padding:5px 8px;border-radius:6px;font-size:.78rem;font-family:var(--font)">
+        <input type="number" name="take_profit_pct" placeholder="TP %" step="1" min="5" max="200" value="<?= (int)$ppSet['take_profit_pct'] ?>"
+               style="width:60px;background:var(--s1);border:1px solid var(--b2);color:var(--t1);padding:5px 8px;border-radius:6px;font-size:.78rem;font-family:var(--font)">
+        <input type="number" name="cash_reserve_pct" placeholder="Cash %" step="1" min="0" max="50" value="<?= (int)$ppSet['cash_reserve_pct'] ?>"
+               style="width:60px;background:var(--s1);border:1px solid var(--b2);color:var(--t1);padding:5px 8px;border-radius:6px;font-size:.78rem;font-family:var(--font)">
+        <button type="submit" class="btn btn-g" style="font-size:.72rem;padding:5px 10px">SAVE</button>
+      </form>
+    </div>
+  </div>
+</div>
+
+</div><!-- /pp-tab-settings -->
+
 <?php endif; // ppFunded ?>
 
 </div><!-- /tab-paper -->

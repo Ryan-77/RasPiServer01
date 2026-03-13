@@ -105,6 +105,8 @@ $openCount  = count(array_filter($allTrades, fn($t) => $t['status'] === 'open'))
 if ($view === 'portfolio') {
     $allTrades    = computeTradePnl($allTrades, $latestPrices);
     $paperPnl     = round(array_sum(array_column($allTrades, 'pnl_usd')), 2);
+    $ppOpenTrades  = array_values(array_filter($allTrades, fn($t) => $t['status'] === 'open'));
+    $ppClosedTrades = array_values(array_filter($allTrades, fn($t) => $t['status'] === 'closed'));
     $ppSummary    = getPaperPortfolioSummary($latestPrices);
     $ppFunded     = $ppSummary['funded'] ?? false;
     $ppHistory    = $ppFunded ? getPaperPortfolioHistory(720) : [];
