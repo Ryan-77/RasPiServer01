@@ -155,8 +155,10 @@ async function fetchNews(){
   const cached=cacheGet('ci_news');
   if(cached){newsArr=cached;return;}
   const res=await fetch('coininfo_cache.php?action=news');
-  newsArr=res.ok?(await res.json()):[];
-  if(!Array.isArray(newsArr))newsArr=[];
+  const raw=res.ok?(await res.json()):null;
+  if(!raw){console.warn('[coininfo] news fetch failed',res.status);newsArr=[];return;}
+  newsArr=Array.isArray(raw)?raw:(raw.data&&Array.isArray(raw.data)?raw.data:[]);
+  console.log('[coininfo] news loaded:',newsArr.length,'articles');
   cacheSet('ci_news',newsArr);
 }
 
@@ -166,13 +168,19 @@ async function fetchChart(id){
   const res=await fetch(`coininfo_cache.php?action=chart&coin=${id}`);
   if(!res.ok) throw new Error('chart '+res.status);
   const data=await res.json();
+  if(data.error||data.status?.error_code){
+    console.warn('[coininfo] chart error for',id,data);
+    throw new Error(data.error||data.status?.error_message||'upstream error');
+  }
+  console.log('[coininfo] chart loaded for',id,'—',data.prices?.length,'points');
   cacheSet('ci_chart_'+id,data);
   return data;
 }
 
 // ── Draw price chart ─────────────────────────────────────────
 function drawChart(canvas, prices, color){
-  const W = canvas.width  = canvas.offsetWidth * devicePixelRatio;
+  const cssW = canvas.offsetWidth || canvas.parentElement?.clientWidth || 600;
+  const W = canvas.width  = cssW * devicePixelRatio;
   const H = canvas.height = 190 * devicePixelRatio;
   canvas.style.height = '190px';
   const ctx = canvas.getContext('2d');

@@ -29,15 +29,21 @@ function getCached(string $key): ?string {
 
 function fetchAndCache(string $key, string $url): string {
     $ctx = stream_context_create(['http' => [
-        'timeout' => 10,
-        'header'  => "User-Agent: CryptoDashboard/1.0\r\n"
+        'timeout'       => 10,
+        'ignore_errors' => true,
+        'header'        => "User-Agent: CryptoDashboard/1.0\r\nAccept: application/json\r\n"
     ]]);
     $data = @file_get_contents($url, false, $ctx);
     if ($data === false) {
         http_response_code(502);
         return json_encode(['error' => 'upstream fetch failed']);
     }
-    file_put_contents(cacheFile($key), $data);
+    // Don't cache upstream error responses
+    $decoded = json_decode($data, true);
+    $hasError = isset($decoded['error']) || isset($decoded['status']['error_code']);
+    if (json_last_error() === JSON_ERROR_NONE && !$hasError) {
+        file_put_contents(cacheFile($key), $data);
+    }
     return $data;
 }
 
@@ -53,7 +59,14 @@ if ($action === 'markets') {
         "$BASE/coins/$coin/market_chart?vs_currency=usd&days=365&interval=weekly"
     );
 } elseif ($action === 'news') {
-    echo getCached('news') ?? fetchAndCache('news', "$BASE/news");
+    $raw = getCached('news') ?? fetchAndCache('news', "$BASE/news");
+    $decoded = json_decode($raw, true);
+    // CoinGecko /news wraps results in {"data": [...], "count": N}
+    if (isset($decoded['data']) && is_array($decoded['data'])) {
+        echo json_encode(array_values($decoded['data']));
+    } else {
+        echo $raw; // already an array or error passthrough
+    }
 } else {
     http_response_code(400);
     echo json_encode(['error' => 'invalid action']);
