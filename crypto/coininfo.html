@@ -101,11 +101,20 @@
 
 // ── Config ───────────────────────────────────────────────────
 const COINS = {
-  bitcoin:  { sym:'BTC', aliases:['bitcoin','btc'],  color:'#f7931a' },
-  ethereum: { sym:'ETH', aliases:['ethereum','eth'], color:'#627eea' },
-  ripple:   { sym:'XRP', aliases:['ripple','xrp'],   color:'#346aa9' }
+  bitcoin:  {
+    sym:'BTC', aliases:['bitcoin','btc'], color:'#f7931a',
+    desc:'Bitcoin is the first decentralized digital currency, created in 2009 by the pseudonymous Satoshi Nakamoto. It operates on a peer-to-peer network without a central authority, using blockchain technology to record transactions. Bitcoin is capped at 21 million coins, making it deflationary by design.'
+  },
+  ethereum: {
+    sym:'ETH', aliases:['ethereum','eth'], color:'#627eea',
+    desc:'Ethereum is a decentralized, open-source blockchain with smart contract functionality, proposed in 2013 by Vitalik Buterin. It enables developers to build and deploy decentralized applications (dApps). Ether (ETH) is the native cryptocurrency used to pay for transactions and computation on the network.'
+  },
+  ripple: {
+    sym:'XRP', aliases:['ripple','xrp'], color:'#346aa9',
+    desc:'XRP is the native cryptocurrency of the XRP Ledger, developed by Ripple Labs for fast, low-cost international money transfers and payment settlements. Unlike Bitcoin, XRP tokens are pre-mined and the ledger uses a consensus protocol rather than proof-of-work, enabling settlement in 3–5 seconds.'
+  }
 };
-const TTL = 3600000; // 1 hour
+const TTL = 900000; // 15 min client-side cache (server caches for 1h)
 
 // ── Cache helpers ────────────────────────────────────────────
 function cacheGet(k){
@@ -127,35 +136,37 @@ function fmtPrice(p){
   return '$'+p.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:p<1?6:2});
 }
 
-// ── Fetch (with localStorage cache) ─────────────────────────
-async function fetchCoin(id){
-  const cacheKey='ci_'+id;
-  const cached=cacheGet(cacheKey);
+// ── Module state (markets + news loaded once, shared across coins) ──
+let marketsMap = null; // { bitcoin: {...}, ethereum: {...}, ripple: {...} }
+let newsArr    = null; // raw array from /news
+
+async function fetchMarkets(){
+  const cached=cacheGet('ci_markets');
+  if(cached){marketsMap=cached;return;}
+  const res=await fetch('coininfo_cache.php?action=markets');
+  if(!res.ok) throw new Error('markets '+res.status);
+  const arr=await res.json();
+  marketsMap={};
+  arr.forEach(c=>marketsMap[c.id]=c);
+  cacheSet('ci_markets',marketsMap);
+}
+
+async function fetchNews(){
+  const cached=cacheGet('ci_news');
+  if(cached){newsArr=cached;return;}
+  const res=await fetch('coininfo_cache.php?action=news');
+  newsArr=res.ok?(await res.json()):[];
+  if(!Array.isArray(newsArr))newsArr=[];
+  cacheSet('ci_news',newsArr);
+}
+
+async function fetchChart(id){
+  const cached=cacheGet('ci_chart_'+id);
   if(cached)return cached;
-
-  const base='https://api.coingecko.com/api/v3';
-  const [infoRes, chartRes, newsRes] = await Promise.all([
-    fetch(`${base}/coins/${id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false`),
-    fetch(`${base}/coins/${id}/market_chart?vs_currency=usd&days=365&interval=weekly`),
-    fetch(`${base}/news`)
-  ]);
-
-  if(!infoRes.ok||!chartRes.ok) throw new Error('API error '+infoRes.status);
-
-  const info  = await infoRes.json();
-  const chart = await chartRes.json();
-  const newsArr = newsRes.ok ? await newsRes.json() : [];
-
-  // Filter news by coin aliases in title; fall back to top items if < 3
-  const aliases = COINS[id].aliases;
-  const filtered = (Array.isArray(newsArr)?newsArr:[]).filter(n =>
-    n.title && aliases.some(a => n.title.toLowerCase().includes(a))
-  );
-  const news = filtered.length >= 3 ? filtered.slice(0,3)
-             : [...filtered, ...(Array.isArray(newsArr)?newsArr:[]).filter(n=>!filtered.includes(n))].slice(0,3);
-
-  const data={info,chart,news};
-  cacheSet(cacheKey,data);
+  const res=await fetch(`coininfo_cache.php?action=chart&coin=${id}`);
+  if(!res.ok) throw new Error('chart '+res.status);
+  const data=await res.json();
+  cacheSet('ci_chart_'+id,data);
   return data;
 }
 
@@ -213,30 +224,34 @@ function drawChart(canvas, prices, color){
 }
 
 // ── Render coin panel ────────────────────────────────────────
-function renderCoin(id, {info, chart, news}){
-  const md=info.market_data, c=COINS[id].color;
-  const price=md.current_price.usd;
-  const ch24=md.price_change_percentage_24h??0;
-  const ch7=md.price_change_percentage_7d??0;
+function renderCoin(id, market, chart){
+  const c=COINS[id].color;
+  const ch24=market.price_change_percentage_24h??0;
+  const ch7=market.price_change_percentage_7d_in_currency??0;
   const chColor=v=>v>=0?'var(--gn)':'var(--rd)';
   const chFmt=v=>(v>=0?'+':'')+v.toFixed(2)+'%';
-  const desc=(info.description?.en||'').replace(/<[^>]+>/g,'').trim().slice(0,420);
+
+  // Filter shared news array for this coin
+  const aliases=COINS[id].aliases;
+  const filtered=(newsArr||[]).filter(n=>n.title&&aliases.some(a=>n.title.toLowerCase().includes(a)));
+  const news=filtered.length>=3?filtered.slice(0,3):
+    [...filtered,...(newsArr||[]).filter(n=>!filtered.includes(n))].slice(0,3);
 
   document.getElementById('coinPanel').innerHTML=`
     <div class="ph">
-      <span class="ph-t">${info.name} · ${COINS[id].sym}</span>
-      <span class="ph-m">CoinGecko · cached 1h</span>
+      <span class="ph-t">${market.name} · ${COINS[id].sym}</span>
+      <span class="ph-m">CoinGecko · server-cached 1h</span>
     </div>
 
     <div class="coin-hero">
-      <img src="${info.image?.large||''}" alt="${info.name}" class="coin-logo"
+      <img src="${market.image||''}" alt="${market.name}" class="coin-logo"
            onerror="this.style.display='none'">
       <div class="coin-name-block">
-        <div class="coin-name">${info.name}</div>
-        <div class="coin-sym">${info.symbol.toUpperCase()} · Rank #${md.market_cap_rank??'—'}</div>
+        <div class="coin-name">${market.name}</div>
+        <div class="coin-sym">${market.symbol.toUpperCase()} · Rank #${market.market_cap_rank??'—'}</div>
       </div>
       <div class="coin-price-block">
-        <div class="coin-price" style="color:${c}">${fmtPrice(price)}</div>
+        <div class="coin-price" style="color:${c}">${fmtPrice(market.current_price)}</div>
         <div class="coin-change" style="color:${chColor(ch24)}">${chFmt(ch24)} (24h)</div>
       </div>
     </div>
@@ -244,11 +259,11 @@ function renderCoin(id, {info, chart, news}){
     <div class="coin-stats">
       <div class="coin-stat">
         <div class="coin-stat-l">Market Cap</div>
-        <div class="coin-stat-v">${fmtUsd(md.market_cap.usd)}</div>
+        <div class="coin-stat-v">${fmtUsd(market.market_cap)}</div>
       </div>
       <div class="coin-stat">
         <div class="coin-stat-l">24h Volume</div>
-        <div class="coin-stat-v">${fmtUsd(md.total_volume.usd)}</div>
+        <div class="coin-stat-v">${fmtUsd(market.total_volume)}</div>
       </div>
       <div class="coin-stat">
         <div class="coin-stat-l">7d Change</div>
@@ -256,15 +271,15 @@ function renderCoin(id, {info, chart, news}){
       </div>
       <div class="coin-stat">
         <div class="coin-stat-l">All-Time High</div>
-        <div class="coin-stat-v">${fmtPrice(md.ath.usd)}</div>
+        <div class="coin-stat-v">${fmtPrice(market.ath)}</div>
       </div>
       <div class="coin-stat">
         <div class="coin-stat-l">Circulating Supply</div>
-        <div class="coin-stat-v">${(md.circulating_supply||0).toLocaleString(undefined,{maximumFractionDigits:0})} ${info.symbol.toUpperCase()}</div>
+        <div class="coin-stat-v">${(market.circulating_supply||0).toLocaleString(undefined,{maximumFractionDigits:0})} ${market.symbol.toUpperCase()}</div>
       </div>
     </div>
 
-    ${desc?`<div class="coin-desc">${desc}…</div>`:''}
+    <div class="coin-desc">${COINS[id].desc}</div>
 
     <div class="chart-wrap">
       <div class="chart-label">Price History · 1 Year (Weekly)</div>
@@ -288,18 +303,24 @@ function renderCoin(id, {info, chart, news}){
 
   requestAnimationFrame(()=>{
     const canvas=document.getElementById('priceChart');
-    if(canvas&&chart.prices?.length) drawChart(canvas,chart.prices,c);
+    if(canvas&&chart?.prices?.length) drawChart(canvas,chart.prices,c);
   });
 }
 
-// ── Load & error handling ────────────────────────────────────
+// ── Load coin (chart fetched lazily, markets+news already loaded) ─
 async function loadCoin(id){
-  document.getElementById('coinPanel').innerHTML='<div class="ci-loading">Loading…</div>';
+  if(!marketsMap?.[id]){
+    document.getElementById('coinPanel').innerHTML='<div class="ci-err">Market data unavailable.</div>';
+    return;
+  }
+  // Render immediately with market data; chart loads async
+  document.getElementById('coinPanel').innerHTML='<div class="ci-loading">Loading chart…</div>';
   try{
-    renderCoin(id, await fetchCoin(id));
+    const chart=await fetchChart(id);
+    renderCoin(id, marketsMap[id], chart);
   }catch(e){
-    document.getElementById('coinPanel').innerHTML=
-      '<div class="ci-err">Failed to load data — CoinGecko may be rate-limiting. Try again in a moment.</div>';
+    // Render without chart on chart failure
+    renderCoin(id, marketsMap[id], null);
   }
 }
 
@@ -312,7 +333,16 @@ document.querySelectorAll('.coin-btn').forEach(btn=>{
   });
 });
 
-loadCoin('bitcoin');
+// ── Init: load markets + news in parallel, then render BTC ───
+(async()=>{
+  try{
+    await Promise.all([fetchMarkets(), fetchNews()]);
+    loadCoin('bitcoin');
+  }catch(e){
+    document.getElementById('coinPanel').innerHTML=
+      '<div class="ci-err">Failed to load data. Check that coininfo_cache.php can reach CoinGecko.</div>';
+  }
+})();
 </script>
 </body>
 </html>
