@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><title>Coin Info · Crypto Dashboard</title>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<link rel="stylesheet" href="assets/style.css">
+<style>
+.coin-selector{display:flex;gap:8px;margin-bottom:18px}
+.coin-btn{padding:9px 24px;border-radius:8px;border:1px solid var(--b1);background:var(--s2);
+  color:var(--t2);font-size:.88rem;font-weight:600;cursor:pointer;font-family:var(--font);transition:all .18s}
+.coin-btn:hover{border-color:var(--b2);color:var(--t1)}
+.coin-btn.active{background:var(--ac);border-color:var(--ac);color:#fff}
+.coin-hero{display:flex;align-items:center;gap:18px;padding:22px 24px;flex-wrap:wrap}
+.coin-logo{width:56px;height:56px;border-radius:50%;object-fit:cover;flex-shrink:0}
+.coin-name-block{flex:1}
+.coin-name{font-size:1.4rem;font-weight:700}
+.coin-sym{font-size:.8rem;color:var(--t3);margin-top:2px}
+.coin-price-block{text-align:right}
+.coin-price{font-size:1.9rem;font-weight:800;font-family:var(--mono);font-variant-numeric:tabular-nums}
+.coin-change{font-size:.88rem;font-weight:600;margin-top:3px}
+.coin-stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,1fr));gap:10px;padding:0 24px 20px}
+.coin-stat{background:var(--s2);border:1px solid var(--b1);border-radius:8px;padding:11px 14px}
+.coin-stat-l{font-size:.68rem;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;font-weight:500;margin-bottom:4px}
+.coin-stat-v{font-size:.98rem;font-weight:700;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+.coin-desc{padding:0 24px 18px;font-size:.83rem;color:var(--t2);line-height:1.75;border-bottom:1px solid var(--b1)}
+.chart-wrap{padding:18px 24px}
+.chart-label{font-size:.72rem;color:var(--t3);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px}
+#priceChart{width:100%;height:190px;border-radius:8px;border:1px solid var(--b1);background:var(--bg);display:block}
+.news-list{display:flex;flex-direction:column;gap:10px;padding:14px}
+.news-card{display:flex;gap:12px;background:var(--s2);border:1px solid var(--b1);border-radius:8px;
+  padding:12px;text-decoration:none;transition:border-color .18s}
+.news-card:hover{border-color:var(--b2)}
+.news-thumb{width:70px;height:52px;object-fit:cover;border-radius:6px;flex-shrink:0;background:var(--s3)}
+.news-title{font-size:.83rem;font-weight:600;color:var(--t1);
+  display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;line-height:1.45}
+.news-meta{font-size:.71rem;color:var(--t3);margin-top:5px}
+.ci-loading{padding:50px;text-align:center;color:var(--t3);font-size:.84rem}
+.ci-err{padding:20px 24px;color:var(--rd);font-size:.84rem}
+@media(max-width:700px){
+  .coin-hero{gap:12px}
+  .coin-price-block{width:100%;text-align:left}
+}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<header class="hdr">
+  <div class="hdr-l">
+    <div class="pulse"><div class="d"></div><div class="r"></div></div>
+    <div>
+      <div class="logo">Crypto Dashboard</div>
+      <div class="logo-sub">Raspberry Pi · Portfolio Analysis</div>
+    </div>
+  </div>
+  <div class="hdr-r">
+    <div class="clock-box">
+      <div class="clock-t" id="clock">──:──:──</div>
+      <div class="clock-d" id="cdate">────────────</div>
+    </div>
+  </div>
+</header>
+
+<nav class="nav">
+  <a href="crypto.php">PORTFOLIO</a>
+  <a href="crypto.php?view=analysis">ANALYSIS</a>
+  <a href="crypto.php?view=alerts">EVENTS</a>
+  <a href="crypto.php?view=log">LOG</a>
+  <a href="coininfo.html" class="active">COIN INFO</a>
+  <div class="nav-sp"></div>
+  <span style="font-size:.75rem;color:var(--t3)">cron: */5 * * * *</span>
+</nav>
+
+<div class="coin-selector">
+  <button class="coin-btn active" data-coin="bitcoin"  data-label="BTC">BTC</button>
+  <button class="coin-btn"        data-coin="ethereum" data-label="ETH">ETH</button>
+  <button class="coin-btn"        data-coin="ripple"   data-label="XRP">XRP</button>
+</div>
+
+<div class="panel" id="coinPanel">
+  <div class="ci-loading">Loading…</div>
+</div>
+
+<div class="footer">Crypto Dashboard · Raspberry Pi · 2026</div>
+</div>
+
+<script>
+// ── Clock ────────────────────────────────────────────────────
+(function(){
+  const D=['Sun','Mon','Tue','Wed','Thu','Fri','Sat'];
+  const M=['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  function tick(){
+    const n=new Date();
+    document.getElementById('clock').textContent=
+      [n.getUTCHours(),n.getUTCMinutes(),n.getUTCSeconds()].map(v=>String(v).padStart(2,'0')).join(':');
+    document.getElementById('cdate').textContent=
+      `${D[n.getUTCDay()]} · ${n.getUTCDate()} ${M[n.getUTCMonth()]} ${n.getUTCFullYear()}`;
+  }
+  tick(); setInterval(tick,1000);
+})();
+
+// ── Config ───────────────────────────────────────────────────
+const COINS = {
+  bitcoin:  { sym:'BTC', aliases:['bitcoin','btc'],  color:'#f7931a' },
+  ethereum: { sym:'ETH', aliases:['ethereum','eth'], color:'#627eea' },
+  ripple:   { sym:'XRP', aliases:['ripple','xrp'],   color:'#346aa9' }
+};
+const TTL = 3600000; // 1 hour
+
+// ── Cache helpers ────────────────────────────────────────────
+function cacheGet(k){
+  try{const x=JSON.parse(localStorage.getItem(k));if(x&&Date.now()-x.ts<TTL)return x.d;}catch(e){}
+  return null;
+}
+function cacheSet(k,d){
+  try{localStorage.setItem(k,JSON.stringify({ts:Date.now(),d}));}catch(e){}
+}
+
+// ── Format helpers ───────────────────────────────────────────
+function fmtUsd(n){
+  if(n>=1e12)return '$'+(n/1e12).toFixed(2)+'T';
+  if(n>=1e9) return '$'+(n/1e9).toFixed(2)+'B';
+  if(n>=1e6) return '$'+(n/1e6).toFixed(2)+'M';
+  return '$'+n.toLocaleString();
+}
+function fmtPrice(p){
+  return '$'+p.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:p<1?6:2});
+}
+
+// ── Fetch (with localStorage cache) ─────────────────────────
+async function fetchCoin(id){
+  const cacheKey='ci_'+id;
+  const cached=cacheGet(cacheKey);
+  if(cached)return cached;
+
+  const base='https://api.coingecko.com/api/v3';
+  const [infoRes, chartRes, newsRes] = await Promise.all([
+    fetch(`${base}/coins/${id}?localization=false&tickers=false&market_data=true&community_data=false&developer_data=false`),
+    fetch(`${base}/coins/${id}/market_chart?vs_currency=usd&days=365&interval=weekly`),
+    fetch(`${base}/news`)
+  ]);
+
+  if(!infoRes.ok||!chartRes.ok) throw new Error('API error '+infoRes.status);
+
+  const info  = await infoRes.json();
+  const chart = await chartRes.json();
+  const newsArr = newsRes.ok ? await newsRes.json() : [];
+
+  // Filter news by coin aliases in title; fall back to top items if < 3
+  const aliases = COINS[id].aliases;
+  const filtered = (Array.isArray(newsArr)?newsArr:[]).filter(n =>
+    n.title && aliases.some(a => n.title.toLowerCase().includes(a))
+  );
+  const news = filtered.length >= 3 ? filtered.slice(0,3)
+             : [...filtered, ...(Array.isArray(newsArr)?newsArr:[]).filter(n=>!filtered.includes(n))].slice(0,3);
+
+  const data={info,chart,news};
+  cacheSet(cacheKey,data);
+  return data;
+}
+
+// ── Draw price chart ─────────────────────────────────────────
+function drawChart(canvas, prices, color){
+  const W = canvas.width  = canvas.offsetWidth * devicePixelRatio;
+  const H = canvas.height = 190 * devicePixelRatio;
+  canvas.style.height = '190px';
+  const ctx = canvas.getContext('2d');
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  const CW = canvas.offsetWidth, CH = 190;
+  const pad = {t:16, r:14, b:28, l:58};
+
+  const vals = prices.map(p=>p[1]);
+  const min=Math.min(...vals), max=Math.max(...vals), range=max-min||1;
+
+  const toX = i => pad.l + (i/(prices.length-1))*(CW-pad.l-pad.r);
+  const toY = v => pad.t + (1-(v-min)/range)*(CH-pad.t-pad.b);
+
+  // Grid
+  ctx.strokeStyle='#3d3b38'; ctx.lineWidth=1;
+  [0.25,0.5,0.75].forEach(f=>{
+    const y=pad.t+f*(CH-pad.t-pad.b);
+    ctx.beginPath(); ctx.moveTo(pad.l,y); ctx.lineTo(CW-pad.r,y); ctx.stroke();
+  });
+
+  // Y labels
+  ctx.fillStyle='#6b6966'; ctx.font='10px JetBrains Mono,monospace'; ctx.textAlign='right';
+  [0,0.5,1].forEach(f=>{
+    const v=min+f*range, y=pad.t+(1-f)*(CH-pad.t-pad.b);
+    ctx.fillText(v>=1000?'$'+(v/1000).toFixed(0)+'k':'$'+v.toFixed(0), pad.l-4, y+4);
+  });
+
+  // Gradient fill
+  const grad=ctx.createLinearGradient(0,pad.t,0,CH-pad.b);
+  grad.addColorStop(0,color+'44'); grad.addColorStop(1,color+'05');
+  ctx.beginPath();
+  ctx.moveTo(toX(0),CH-pad.b);
+  prices.forEach((p,i)=>ctx.lineTo(toX(i),toY(p[1])));
+  ctx.lineTo(toX(prices.length-1),CH-pad.b);
+  ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
+
+  // Line
+  ctx.beginPath(); ctx.strokeStyle=color; ctx.lineWidth=2; ctx.lineJoin='round';
+  prices.forEach((p,i)=>i===0?ctx.moveTo(toX(i),toY(p[1])):ctx.lineTo(toX(i),toY(p[1])));
+  ctx.stroke();
+
+  // X-axis date labels (quarterly)
+  ctx.fillStyle='#6b6966'; ctx.font='10px system-ui,sans-serif'; ctx.textAlign='center';
+  const step=Math.floor(prices.length/4);
+  for(let i=0;i<prices.length;i+=step){
+    const d=new Date(prices[i][0]);
+    ctx.fillText(d.toLocaleDateString('en-US',{month:'short',year:'2-digit'}),toX(i),CH-8);
+  }
+}
+
+// ── Render coin panel ────────────────────────────────────────
+function renderCoin(id, {info, chart, news}){
+  const md=info.market_data, c=COINS[id].color;
+  const price=md.current_price.usd;
+  const ch24=md.price_change_percentage_24h??0;
+  const ch7=md.price_change_percentage_7d??0;
+  const chColor=v=>v>=0?'var(--gn)':'var(--rd)';
+  const chFmt=v=>(v>=0?'+':'')+v.toFixed(2)+'%';
+  const desc=(info.description?.en||'').replace(/<[^>]+>/g,'').trim().slice(0,420);
+
+  document.getElementById('coinPanel').innerHTML=`
+    <div class="ph">
+      <span class="ph-t">${info.name} · ${COINS[id].sym}</span>
+      <span class="ph-m">CoinGecko · cached 1h</span>
+    </div>
+
+    <div class="coin-hero">
+      <img src="${info.image?.large||''}" alt="${info.name}" class="coin-logo"
+           onerror="this.style.display='none'">
+      <div class="coin-name-block">
+        <div class="coin-name">${info.name}</div>
+        <div class="coin-sym">${info.symbol.toUpperCase()} · Rank #${md.market_cap_rank??'—'}</div>
+      </div>
+      <div class="coin-price-block">
+        <div class="coin-price" style="color:${c}">${fmtPrice(price)}</div>
+        <div class="coin-change" style="color:${chColor(ch24)}">${chFmt(ch24)} (24h)</div>
+      </div>
+    </div>
+
+    <div class="coin-stats">
+      <div class="coin-stat">
+        <div class="coin-stat-l">Market Cap</div>
+        <div class="coin-stat-v">${fmtUsd(md.market_cap.usd)}</div>
+      </div>
+      <div class="coin-stat">
+        <div class="coin-stat-l">24h Volume</div>
+        <div class="coin-stat-v">${fmtUsd(md.total_volume.usd)}</div>
+      </div>
+      <div class="coin-stat">
+        <div class="coin-stat-l">7d Change</div>
+        <div class="coin-stat-v" style="color:${chColor(ch7)}">${chFmt(ch7)}</div>
+      </div>
+      <div class="coin-stat">
+        <div class="coin-stat-l">All-Time High</div>
+        <div class="coin-stat-v">${fmtPrice(md.ath.usd)}</div>
+      </div>
+      <div class="coin-stat">
+        <div class="coin-stat-l">Circulating Supply</div>
+        <div class="coin-stat-v">${(md.circulating_supply||0).toLocaleString(undefined,{maximumFractionDigits:0})} ${info.symbol.toUpperCase()}</div>
+      </div>
+    </div>
+
+    ${desc?`<div class="coin-desc">${desc}…</div>`:''}
+
+    <div class="chart-wrap">
+      <div class="chart-label">Price History · 1 Year (Weekly)</div>
+      <canvas id="priceChart"></canvas>
+    </div>
+
+    ${news.length?`
+    <div class="ph" style="border-top:1px solid var(--b1)"><span class="ph-t">NEWS</span></div>
+    <div class="news-list">
+      ${news.map(n=>`
+        <a href="${n.url}" target="_blank" rel="noopener" class="news-card">
+          ${n.thumb_2x?`<img src="${n.thumb_2x}" class="news-thumb" alt=""
+            onerror="this.style.display='none'">`:''}
+          <div>
+            <div class="news-title">${n.title}</div>
+            <div class="news-meta">${n.author||''} · ${new Date((n.published_at||n.created_at||0)*1000).toLocaleDateString()}</div>
+          </div>
+        </a>`).join('')}
+    </div>`:''}
+  `;
+
+  requestAnimationFrame(()=>{
+    const canvas=document.getElementById('priceChart');
+    if(canvas&&chart.prices?.length) drawChart(canvas,chart.prices,c);
+  });
+}
+
+// ── Load & error handling ────────────────────────────────────
+async function loadCoin(id){
+  document.getElementById('coinPanel').innerHTML='<div class="ci-loading">Loading…</div>';
+  try{
+    renderCoin(id, await fetchCoin(id));
+  }catch(e){
+    document.getElementById('coinPanel').innerHTML=
+      '<div class="ci-err">Failed to load data — CoinGecko may be rate-limiting. Try again in a moment.</div>';
+  }
+}
+
+// ── Selector buttons ─────────────────────────────────────────
+document.querySelectorAll('.coin-btn').forEach(btn=>{
+  btn.addEventListener('click',()=>{
+    document.querySelectorAll('.coin-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active');
+    loadCoin(btn.dataset.coin);
+  });
+});
+
+loadCoin('bitcoin');
+</script>
+</body>
+</html>

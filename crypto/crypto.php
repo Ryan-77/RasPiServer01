@@ -183,6 +183,7 @@ $flash = $_SESSION['flash'] ?? null; unset($_SESSION['flash']);
     EVENTS<?php if ($unseenCount > 0): ?><span class="badge"><?= $unseenCount ?></span><?php endif ?>
   </a>
   <a href="<?= buildUrl(['view'=>'log']) ?>" class="<?= $view==='log'?'active':'' ?>">LOG</a>
+  <a href="coininfo.html">COIN INFO</a>
   <div class="nav-sp"></div>
   <span style="font-size:.75rem;color:var(--t3)">cron: */5 * * * *</span>
 </nav>
