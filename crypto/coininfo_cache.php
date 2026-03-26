@@ -5,10 +5,11 @@
 
 header('Content-Type: application/json');
 
-$TTL      = 3600; // seconds
-$CACHE_DIR = sys_get_temp_dir() . '/coininfo_cache';
+$TTL         = 3600; // seconds
+$CACHE_DIR   = sys_get_temp_dir() . '/coininfo_cache';
 $VALID_COINS = ['bitcoin', 'ethereum', 'ripple'];
-$BASE = 'https://api.coingecko.com/api/v3';
+$API_KEY     = 'CG-aQzxrfUMSk8gSSKBgmpA3Uht';   // ← paste your free CoinGecko Demo API key here
+$BASE        = 'https://api.coingecko.com/api/v3';
 
 if (!is_dir($CACHE_DIR)) mkdir($CACHE_DIR, 0755, true);
 
@@ -28,6 +29,8 @@ function getCached(string $key): ?string {
 }
 
 function fetchAndCache(string $key, string $url): string {
+    global $API_KEY;
+    if ($API_KEY) $url .= (str_contains($url, '?') ? '&' : '?') . 'x_cg_demo_api_key=' . urlencode($API_KEY);
     $ctx = stream_context_create(['http' => [
         'timeout'       => 10,
         'ignore_errors' => true,
