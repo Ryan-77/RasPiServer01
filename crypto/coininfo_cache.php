@@ -59,7 +59,7 @@ if ($action === 'markets') {
 } elseif ($action === 'chart' && in_array($coin, $VALID_COINS)) {
     $key = "chart_$coin";
     echo getCached($key) ?? fetchAndCache($key,
-        "$BASE/coins/$coin/market_chart?vs_currency=usd&days=365&interval=weekly"
+        "$BASE/coins/$coin/market_chart?vs_currency=usd&days=365"
     );
 } elseif ($action === 'news') {
     $raw = getCached('news') ?? fetchAndCache('news', "$BASE/news");
