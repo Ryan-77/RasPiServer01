@@ -106,10 +106,8 @@ def update_paper_portfolio_on_trade(conn, coin: str, action: str,
 
         sell_amt = min(amount_coin, existing["amount"]) if existing else 0
         if sell_amt <= 0:
-            # Short selling — just reduce cash and track negative position conceptually
-            new_cash = cash + amount_usd
-            conn.execute("UPDATE paper_portfolio_config SET cash_balance=?, updated_at=? WHERE id=1",
-                          (round(new_cash, 2), ts))
+            # No holding to sell — skip portfolio update to avoid inflating cash/total_value.
+            # The paper_trade record is still created for P&L tracking purposes.
             return True
 
         # Reduce holding proportionally
@@ -388,9 +386,9 @@ def execute_paper_rebalance_trades(allocations: Dict[str, dict],
                                                 round(actual_sell_usd * (1 - FEE_RATE), 2)):
                 conn.execute("""
                     INSERT INTO paper_trades
-                        (alert_id, timestamp, coin, action, entry_price, amount_coin, amount_usd, status)
-                    VALUES (NULL, ?, ?, 'sell', ?, ?, ?, 'open')
-                """, (ts, coin, price, sell_amt, actual_sell_usd))
+                        (alert_id, timestamp, coin, action, entry_price, amount_coin, amount_usd, status, exit_price, closed_at)
+                    VALUES (NULL, ?, ?, 'sell', ?, ?, ?, 'closed', ?, ?)
+                """, (ts, coin, price, sell_amt, actual_sell_usd, price, ts))
                 log.info(f"[PAPER] Rebalance SELL {coin.upper()} ${actual_sell_usd:.2f} "
                          f"(drift {drift:+.1f}%)")
                 count += 1
@@ -417,9 +415,9 @@ def execute_paper_rebalance_trades(allocations: Dict[str, dict],
                                                 round(buy_usd_with_fee, 2)):
                 conn.execute("""
                     INSERT INTO paper_trades
-                        (alert_id, timestamp, coin, action, entry_price, amount_coin, amount_usd, status)
-                    VALUES (NULL, ?, ?, 'buy', ?, ?, ?, 'open')
-                """, (ts, coin, price, buy_amt, round(buy_usd, 2)))
+                        (alert_id, timestamp, coin, action, entry_price, amount_coin, amount_usd, status, exit_price, closed_at)
+                    VALUES (NULL, ?, ?, 'buy', ?, ?, ?, 'closed', ?, ?)
+                """, (ts, coin, price, buy_amt, round(buy_usd, 2), price, ts))
                 log.info(f"[PAPER] Rebalance BUY {coin.upper()} ${buy_usd:.2f} "
                          f"(drift {drift:+.1f}%)")
                 count += 1
