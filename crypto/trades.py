@@ -82,16 +82,19 @@ def save_alerts(ranked: List[dict], prices: Dict[str, float], portfolio: Dict) -
                     closed = _close_open_trades(conn, coin, opposite, price, ts)
                     if closed:
                         log.info(f"[TRADE] Auto-closed {closed} open {opposite.upper()} trade(s) for {coin.upper()} at ${price:,.2f}")
-                        # Update paper portfolio holdings for auto-close
-                        if pp_active:
-                            # Estimate USD from closed trades
+                        # Update paper portfolio holdings for auto-close.
+                        # Only needed when closing a long (opposite=="buy"): sell the held coins
+                        # and return proceeds to cash. When closing a short (opposite=="sell"),
+                        # no portfolio update is needed because opening the short didn't affect
+                        # holdings or cash (naked shorts are a no-op on the portfolio).
+                        if pp_active and opposite == "buy":
                             closed_trades = conn.execute(
                                 "SELECT amount_coin FROM paper_trades WHERE coin=? AND action=? AND status='closed' AND closed_at=?",
                                 (coin, opposite, ts)
                             ).fetchall()
                             for ct in closed_trades:
                                 close_usd = round(ct["amount_coin"] * price, 2)
-                                update_paper_portfolio_on_trade(conn, coin, "sell" if opposite == "buy" else "buy",
+                                update_paper_portfolio_on_trade(conn, coin, "sell",
                                                                 ct["amount_coin"], price, close_usd)
 
                     notional  = notional_base

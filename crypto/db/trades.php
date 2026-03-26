@@ -39,15 +39,55 @@ function computeTradePnl(array $trades, array $latestPrices): array {
     return $trades;
 }
 
+function _applyPortfolioClose(string $coin, string $action, float $amountCoin, float $exitPrice, string $now): void {
+    if ($action !== 'buy') return; // Sell trades didn't create holdings, nothing to unwind
+    $db = db();
+    $holding = $db->prepare("SELECT amount, total_cost FROM paper_portfolio_holdings WHERE coin=?");
+    $holding->execute([$coin]);
+    $h = $holding->fetch(PDO::FETCH_ASSOC);
+    if (!$h || (float)$h['amount'] <= 0) return;
+
+    $sellAmt  = min($amountCoin, (float)$h['amount']);
+    if ($sellAmt <= 0) return;
+
+    $fraction  = $sellAmt / (float)$h['amount'];
+    $costBasis = (float)$h['total_cost'] * $fraction;
+    $proceeds  = round($sellAmt * $exitPrice, 2);
+    $newAmt    = (float)$h['amount'] - $sellAmt;
+    $newCost   = (float)$h['total_cost'] - $costBasis;
+
+    if ($newAmt < 0.000000005) {
+        $db->prepare("DELETE FROM paper_portfolio_holdings WHERE coin=?")->execute([$coin]);
+    } else {
+        $newAvg = $newCost / $newAmt;
+        $db->prepare("UPDATE paper_portfolio_holdings SET amount=?, avg_entry_price=?, total_cost=?, current_value=?, unrealized_pnl=?, updated_at=? WHERE coin=?")
+           ->execute([round($newAmt, 8), round($newAvg, 8), round($newCost, 2), round($newAmt * $exitPrice, 2), round($newAmt * $exitPrice - $newCost, 2), $now, $coin]);
+    }
+
+    $cfg = $db->query("SELECT cash_balance FROM paper_portfolio_config WHERE id=1")->fetch(PDO::FETCH_ASSOC);
+    if ($cfg) {
+        $newCash = round((float)$cfg['cash_balance'] + $proceeds, 2);
+        $db->prepare("UPDATE paper_portfolio_config SET cash_balance=?, updated_at=? WHERE id=1")->execute([$newCash, $now]);
+    }
+}
+
 function closeTrade(int $id, string $coin): bool {
     $exitPrice = getLatestPriceForCoin($coin);
     if ($exitPrice === null) return false;
-    return db()->prepare("UPDATE paper_trades SET status='closed', exit_price=?, closed_at=? WHERE id=? AND status='open'")
-        ->execute([$exitPrice, date('c'), $id]);
+    $now = date('c');
+    $trade = db()->prepare("SELECT action, amount_coin FROM paper_trades WHERE id=? AND status='open'");
+    $trade->execute([$id]);
+    $t = $trade->fetch(PDO::FETCH_ASSOC);
+    $ok = db()->prepare("UPDATE paper_trades SET status='closed', exit_price=?, closed_at=? WHERE id=? AND status='open'")
+        ->execute([$exitPrice, $now, $id]);
+    if ($ok && $t) {
+        _applyPortfolioClose($coin, $t['action'], (float)$t['amount_coin'], $exitPrice, $now);
+    }
+    return $ok;
 }
 
 function closeAllTrades(): int {
-    $open = db()->query("SELECT id, coin FROM paper_trades WHERE status='open'")->fetchAll(PDO::FETCH_ASSOC);
+    $open = db()->query("SELECT id, coin, action, amount_coin FROM paper_trades WHERE status='open'")->fetchAll(PDO::FETCH_ASSOC);
     $now = date('c');
     $count = 0;
     foreach ($open as $t) {
@@ -55,6 +95,7 @@ function closeAllTrades(): int {
         if ($price !== null) {
             db()->prepare("UPDATE paper_trades SET status='closed', exit_price=?, closed_at=? WHERE id=?")
                 ->execute([$price, $now, $t['id']]);
+            _applyPortfolioClose($t['coin'], $t['action'], (float)$t['amount_coin'], $price, $now);
             $count++;
         }
     }

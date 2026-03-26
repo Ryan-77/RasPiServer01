@@ -73,7 +73,7 @@ function getPaperPortfolioSummary(array $latestPrices): array {
                              ->fetch(PDO::FETCH_ASSOC);
     } catch (Exception $e) {}
 
-    $marginUsed = min(0, (float)$config['cash_balance']);
+    $marginUsed = max(0, -(float)$config['cash_balance']);
     $marginAvail = ((float)$config['margin_limit'] * (float)$config['funded_amount']) + (float)$config['cash_balance'];
 
     return [
