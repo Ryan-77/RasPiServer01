@@ -372,7 +372,6 @@ def execute_paper_rebalance_trades(allocations: Dict[str, dict],
 
             # Sell amount to bring drift to 0
             sell_usd = abs(drift / 100) * total_val
-            sell_usd_after_fee = sell_usd * (1 - FEE_RATE)  # receive less after fee
             sell_amt = round(sell_usd / price, 8)
 
             # Don't sell more than we hold

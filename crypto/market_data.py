@@ -39,7 +39,10 @@ def fetch_usd_prices(coins: List[str]) -> Dict[str, float]:
         try:
             data   = _get(f"https://api.kraken.com/0/public/Ticker?pair={pair}")
             result = data.get("result", {})
-            key    = next(iter(result))
+            key    = next(iter(result), None)
+            if not key:
+                log.warning(f"[PRICE] Kraken {coin.upper()} returned empty result")
+                continue
             prices[coin] = float(result[key]["c"][0])  # c[0] = last trade price
         except Exception as e:
             log.warning(f"[PRICE] Kraken {coin.upper()} failed: {e}")

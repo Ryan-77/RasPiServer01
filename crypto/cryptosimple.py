@@ -63,12 +63,17 @@ def fetch_history(pair: str, hours: int = 720) -> list:
 
 
 def rsi(prices: list, period: int = 14) -> float:
+    """Wilder's Smoothed RSI — matches indicators.py / TradingView."""
     if len(prices) < period + 1:
         return 50.0
     deltas = [prices[i] - prices[i - 1] for i in range(1, len(prices))]
-    recent = deltas[-period:]
-    avg_g  = sum(d for d in recent if d > 0)  / period
-    avg_l  = sum(-d for d in recent if d < 0) / period
+    gains  = [max(d, 0.0) for d in deltas]
+    losses = [max(-d, 0.0) for d in deltas]
+    avg_g = sum(gains[:period]) / period
+    avg_l = sum(losses[:period]) / period
+    for g, l in zip(gains[period:], losses[period:]):
+        avg_g = (avg_g * (period - 1) + g) / period
+        avg_l = (avg_l * (period - 1) + l) / period
     return 100.0 if avg_l == 0 else round(100 - (100 / (1 + avg_g / avg_l)), 2)
 
 
