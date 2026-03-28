@@ -1,0 +1,16 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+venv/
+
+# Generated data — do not commit
+data/*.db
+data/*.db-wal
+data/*.db-shm
+
+# CSVs are generated outputs, keep them local
+data/*.csv
+
+# Keep the data directory itself
+!data/.gitkeep

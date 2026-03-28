@@ -28,7 +28,7 @@ if ($_SERVER['REQUEST_METHOD'] === 'POST') {
         $_SESSION['flash'] = ['type'=>'ok','msg'=>strtoupper($coin).' removed.'];
     } elseif ($action === 'run_analysis') {
         global $LOG_FILE;
-        shell_exec('python3 /var/www/html/crypto/crypto.py >> ' . escapeshellarg($LOG_FILE) . ' 2>&1 &');
+        shell_exec('/var/www/html/crypto/venv/bin/python /var/www/html/crypto/crypto.py >> ' . escapeshellarg($LOG_FILE) . ' 2>&1 &');
         $_SESSION['flash'] = ['type'=>'ok','msg'=>'Analysis triggered — results will appear shortly.'];
         header('Location: ' . buildUrl(['view'=>'analysis'])); exit;
     } elseif ($action === 'dismiss_alert') {

@@ -1,0 +1,10 @@
+pandas
+numpy
+requests
+streamlit
+plotly
+scipy
+pyarrow
+apscheduler
+scikit-learn
+reverse_geocoder
