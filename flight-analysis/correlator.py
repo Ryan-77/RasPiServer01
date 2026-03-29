@@ -70,7 +70,7 @@ def _location_desc(lat, lon, types):
     return location, activity
 
 
-def correlate(ghosts, clusters, orbits):
+def correlate(ghosts, clusters, orbits, ew_contacts=None):
     """
     Returns list of alert dicts ready for db.insert_alert().
     Each dict: alert_type, severity, region, summary, detail,
@@ -79,6 +79,89 @@ def correlate(ghosts, clusters, orbits):
     events = []
     used_orbits = set()
     used_clusters = set()
+
+    # ── EW asset alerts — highest priority, processed first ──────────────────
+    if ew_contacts:
+        confirmed = [e for e in ew_contacts if e["ew_confidence"] == "CONFIRMED"]
+        probable  = [e for e in ew_contacts if e["ew_confidence"] == "PROBABLE"]
+        possible  = [e for e in ew_contacts if e["ew_confidence"] == "POSSIBLE"]
+
+        for contact in confirmed + probable:
+            severity = "CRITICAL" if contact["ew_confidence"] == "CONFIRMED" else "HIGH"
+            label    = contact.get("flight") or contact["hex"]
+            lat      = contact.get("lat")
+            lon      = contact.get("lon")
+
+            location = f"{lat:.2f}, {lon:.2f}" if lat is not None and lon is not None else "unknown"
+            try:
+                import reverse_geocoder as rg
+                if lat is not None and lon is not None:
+                    result = rg.search([(lat, lon)], verbose=False)[0]
+                    city   = result.get("name", "Unknown")
+                    cc     = result.get("cc", "??")
+                    country = CC_NAMES.get(cc, cc)
+                    location = f"{city}, {country} ({cc})"
+            except Exception:
+                pass
+
+            basis = contact.get("ew_basis") or "type/behavioral match"
+            events.append({
+                "alert_type":     "EW_ASSET_ACTIVITY",
+                "severity":       severity,
+                "region":         None,
+                "summary": (
+                    f"{contact['ew_confidence']} EW/ISR contact: {label} "
+                    f"— {contact['ew_role']} near {location}"
+                ),
+                "detail": (
+                    f"Location: {location}. "
+                    f"Aircraft {label} ({contact.get('type') or 'unknown type'}) "
+                    f"classified as {contact['ew_role']}. "
+                    f"Confidence: {contact['ew_confidence']}. Basis: {basis}. "
+                    f"Alt: {contact.get('alt_baro') or '—'}, "
+                    f"Speed: {contact.get('gs') or '—'} kts."
+                ),
+                "aircraft_hexes": [contact["hex"]],
+                "centroid_lat":   lat,
+                "centroid_lon":   lon,
+            })
+
+        if possible:
+            lats = [e["lat"] for e in possible if e.get("lat") is not None]
+            lons = [e["lon"] for e in possible if e.get("lon") is not None]
+            c_lat = sum(lats) / len(lats) if lats else None
+            c_lon = sum(lons) / len(lons) if lons else None
+
+            location = "multiple locations"
+            try:
+                import reverse_geocoder as rg
+                if c_lat is not None and c_lon is not None:
+                    result = rg.search([(c_lat, c_lon)], verbose=False)[0]
+                    city   = result.get("name", "Unknown")
+                    cc     = result.get("cc", "??")
+                    country = CC_NAMES.get(cc, cc)
+                    location = f"{city}, {country} ({cc})"
+            except Exception:
+                pass
+
+            events.append({
+                "alert_type":     "EW_ASSET_ACTIVITY",
+                "severity":       "MEDIUM",
+                "region":         None,
+                "summary": (
+                    f"{len(possible)} POSSIBLE EW/ISR contact(s) detected "
+                    f"near {location}"
+                ),
+                "detail": (
+                    f"Location: {location}. "
+                    f"{len(possible)} aircraft with behavioral indicators consistent "
+                    f"with EW/ISR mission profiles (score 0.35–0.54). "
+                    f"Hexes: {', '.join(e['hex'] for e in possible)}."
+                ),
+                "aircraft_hexes": [e["hex"] for e in possible],
+                "centroid_lat":   c_lat,
+                "centroid_lon":   c_lon,
+            })
 
     # ── Orbit + nearby cluster = probable refueling or CAP ───────────────────
     for oi, orbit in enumerate(orbits):

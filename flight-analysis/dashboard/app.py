@@ -31,6 +31,7 @@ ALERT_LINE_COLOR = {
     "ATTACK_PACKAGE":           "#FF4136",
     "FORMATION_ACTIVITY":       "#0074D9",
     "UNIDENTIFIED_CONTACTS":    "#B10DC9",
+    "EW_ASSET_ACTIVITY":        "#00FF41",
 }
 
 st.set_page_config(
@@ -103,6 +104,22 @@ def load_qc_data():
         except Exception:
             # Table may not exist yet (first run before monitor.py)
             return {}, pd.DataFrame()
+
+
+@st.cache_data(ttl=60)
+def load_ew_contacts(hours: int = 24) -> pd.DataFrame:
+    """Return EW contacts from the last N hours. Returns empty DataFrame on error."""
+    with _conn() as conn:
+        try:
+            return pd.read_sql(
+                """SELECT * FROM ew_contacts
+                   WHERE snapshot_time >= datetime('now', '-' || ? || ' hours')
+                   ORDER BY snapshot_time DESC""",
+                conn, params=(hours,),
+            )
+        except Exception:
+            # Table may not exist yet (first run before monitor.py has executed)
+            return pd.DataFrame()
 
 
 @st.cache_data(ttl=60)
@@ -190,6 +207,7 @@ st.sidebar.caption("Auto-refreshes every 60 s")
 
 positions                  = load_positions(track_window)
 alerts                     = load_alerts()
+ew_df                      = load_ew_contacts(hours=24)
 last_update, ac_24h, ac_now, alerts_24h, nttr, uttr = load_kpis()
 qc_summary, qc_df          = load_qc_data()
 
@@ -226,7 +244,7 @@ QC_FLAG_COLOR = {
     "FAILED":   "#FF4136",
 }
 
-k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
+k1, k2, k3, k4, k5, k6, k7, k8 = st.columns(8)
 k1.metric("Aircraft (24 h)",       ac_24h)
 k2.metric("Current Snapshot",      ac_now)
 k3.metric("Alerts (24 h)",         alerts_24h,
@@ -237,10 +255,18 @@ k5.metric("UTTR Active (2 h)",     uttr)
 k6.metric("Last Update",
           last_update[11:16] + " UTC" if last_update and last_update != "—" else "—")
 
+# EW contacts KPI
+_ew_count = len(ew_df) if not ew_df.empty else 0
+k7.markdown(
+    f"**EW / ISR (24 h)**  \n"
+    f"<span style='color:#00FF41; font-size:1.4rem; font-weight:700'>{_ew_count}</span>",
+    unsafe_allow_html=True,
+)
+
 # QC status KPI — render with colour via markdown since st.metric doesn't support colours
 _qc_flag = qc_summary.get("latest_flag") or "—"
 _qc_color = QC_FLAG_COLOR.get(_qc_flag, "#888888")
-k7.markdown(
+k8.markdown(
     f"**Feed Quality**  \n"
     f"<span style='color:{_qc_color}; font-size:1.4rem; font-weight:700'>{_qc_flag}</span>",
     unsafe_allow_html=True,
@@ -369,6 +395,37 @@ else:
                 )),
             ))
 
+    # EW / ISR contact markers — green triangles ───────────────────────────
+    if not ew_df.empty:
+        ew_latest = ew_df.dropna(subset=["lat", "lon"])
+        # Keep only the most recent entry per hex so markers don't stack
+        ew_latest = ew_latest.drop_duplicates(subset=["hex"], keep="first")
+        if not ew_latest.empty:
+            # Filter to hexes present in latest snapshot for accurate placement
+            ew_in_snap = ew_latest[ew_latest["hex"].isin(set(latest_positions["hex"]))]
+            if ew_in_snap.empty:
+                ew_in_snap = ew_latest
+            fig_map.add_trace(go.Scattermapbox(
+                lat=ew_in_snap["lat"].tolist(),
+                lon=ew_in_snap["lon"].tolist(),
+                mode="markers",
+                marker=dict(size=12, color="#00FF41", symbol="triangle", opacity=0.95),
+                name="EW / ISR Contact",
+                hovertemplate=(
+                    "<b>%{customdata[0]}</b><br>"
+                    "Role: %{customdata[1]}<br>"
+                    "Confidence: %{customdata[2]}<br>"
+                    "Basis: %{customdata[3]}<br>"
+                    "<extra></extra>"
+                ),
+                customdata=list(zip(
+                    ew_in_snap["flight"].fillna(ew_in_snap["hex"]),
+                    ew_in_snap["ew_role"].fillna("—"),
+                    ew_in_snap["ew_confidence"].fillna("—"),
+                    ew_in_snap["ew_basis"].fillna("—"),
+                )),
+            ))
+
     center_lat = positions["lat"].dropna().mean()
     center_lon = positions["lon"].dropna().mean()
 
@@ -392,7 +449,8 @@ else:
     st.caption(
         "⚫ Gray = military, no alert &nbsp;|&nbsp; 🟠 Orange = in active alert &nbsp;|&nbsp; "
         "Colored lines = flight paths leading to alert &nbsp;|&nbsp; "
-        "Colored circles = alert centroids (red=CRITICAL, orange=HIGH, yellow=MEDIUM)"
+        "Colored circles = alert centroids (red=CRITICAL, orange=HIGH, yellow=MEDIUM) &nbsp;|&nbsp; "
+        "🟢 Green triangle = EW / ISR contact"
     )
 
 st.markdown("---")
@@ -511,6 +569,48 @@ else:
                     "fail_reasons":      st.column_config.TextColumn("Fail Reasons",    width="medium"),
                 },
             )
+
+st.markdown("---")
+
+# ── SECTION 3b: EW / ISR ACTIVITY ────────────────────────────────────────────
+
+st.subheader("EW / ISR Activity")
+
+if ew_df.empty:
+    st.info("No EW/ISR contacts detected in the last 24 hours.")
+else:
+    _ew_confirmed = len(ew_df[ew_df["ew_confidence"] == "CONFIRMED"]) if "ew_confidence" in ew_df.columns else 0
+    _ew_roles     = ew_df["ew_role"].nunique() if "ew_role" in ew_df.columns else 0
+
+    ew_k1, ew_k2, ew_k3 = st.columns(3)
+    ew_k1.metric("EW Contacts (24 h)", len(ew_df))
+    ew_k2.metric("Confirmed",          _ew_confirmed)
+    ew_k3.metric("Distinct Roles",     _ew_roles)
+
+    _ew_display_cols = [
+        c for c in
+        ["snapshot_time", "flight", "type", "ew_role", "ew_confidence", "ew_basis", "alt_baro", "gs"]
+        if c in ew_df.columns
+    ]
+    _ew_display = ew_df[_ew_display_cols].copy()
+    if "snapshot_time" in _ew_display.columns:
+        _ew_display["snapshot_time"] = _ew_display["snapshot_time"].str[:16]
+
+    st.dataframe(
+        _ew_display,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "snapshot_time":  st.column_config.TextColumn("Time (UTC)",    width="small"),
+            "flight":         st.column_config.TextColumn("Callsign",      width="small"),
+            "type":           st.column_config.TextColumn("Type",          width="small"),
+            "ew_role":        st.column_config.TextColumn("EW Role",       width="large"),
+            "ew_confidence":  st.column_config.TextColumn("Confidence",    width="small"),
+            "ew_basis":       st.column_config.TextColumn("Basis",         width="large"),
+            "alt_baro":       st.column_config.TextColumn("Alt",           width="small"),
+            "gs":             st.column_config.NumberColumn("Speed (kts)", width="small"),
+        },
+    )
 
 st.markdown("---")
 

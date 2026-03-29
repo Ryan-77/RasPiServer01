@@ -19,6 +19,7 @@ import qc
 from detectors.ghost import detect_ghosts
 from detectors.cluster import detect_clusters
 from detectors.circular import detect_circular_flight
+from detectors.ew import detect_ew_aircraft
 from correlator import correlate
 
 # ── Region bounding boxes ────────────────────────────────────────────────────
@@ -98,8 +99,21 @@ def run_cycle(conn):
         label = o.get("flight") or o["hex"]
         print(f"    Orbit: {label} ({o['direction']}, r={o['radius_nm']}nm, {o['cumulative_heading_deg']:.0f}°)", flush=True)
 
+    # 4a. EW / ISR classification
+    ew_contacts = detect_ew_aircraft(snapshot, orbits, clusters)
+    print(f"  EW contacts: {len(ew_contacts)}", flush=True)
+    for e in ew_contacts:
+        label = e.get("flight") or e["hex"]
+        print(
+            f"    EW [{e['ew_confidence']}] {label} — {e['ew_role']} "
+            f"({e.get('ew_basis', '')})",
+            flush=True,
+        )
+
+    db.insert_ew_contacts(conn, ew_contacts, ts)
+
     # 5. Correlate into events
-    events = correlate(ghosts, clusters, orbits)
+    events = correlate(ghosts, clusters, orbits, ew_contacts=ew_contacts)
 
     # 6. Write alerts (deduped)
     new_alerts = 0

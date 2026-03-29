@@ -57,6 +57,8 @@ def init_db(conn):
     """)
     # Initialise QC table (defined in qc.py to avoid circular imports)
     qc_module.init_qc_table(conn)
+    # Initialise EW contacts table
+    init_ew_table(conn)
     # Migrate existing DB if columns are missing
     for col, typedef in [("centroid_lat", "REAL"), ("centroid_lon", "REAL")]:
         try:
@@ -188,6 +190,78 @@ def export_alerts_csv(conn, path=ALERTS_CSV):
         writer = csv.writer(f)
         writer.writerow([d[0] for d in cur.description])
         writer.writerows(rows)
+
+
+def init_ew_table(conn):
+    """Creates the ew_contacts table and indexes if they don't exist."""
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS ew_contacts (
+            id              INTEGER PRIMARY KEY AUTOINCREMENT,
+            snapshot_time   TEXT NOT NULL,
+            hex             TEXT NOT NULL,
+            flight          TEXT,
+            type            TEXT,
+            lat             REAL,
+            lon             REAL,
+            alt_baro        TEXT,
+            gs              REAL,
+            ew_role         TEXT NOT NULL,
+            ew_confidence   TEXT NOT NULL,
+            ew_basis        TEXT,
+            in_orbit        INTEGER DEFAULT 0,
+            near_cluster    INTEGER DEFAULT 0
+        );
+        CREATE INDEX IF NOT EXISTS idx_ew_time ON ew_contacts(snapshot_time);
+        CREATE INDEX IF NOT EXISTS idx_ew_hex  ON ew_contacts(hex);
+    """)
+    conn.commit()
+
+
+def insert_ew_contacts(conn, ew_contacts, snapshot_time):
+    """
+    Bulk-inserts a list of EW contact dicts.
+    ew_contacts: list of dicts from detect_ew_aircraft()
+    snapshot_time: ISO timestamp string
+    """
+    if not ew_contacts:
+        return
+    rows = [
+        (
+            snapshot_time,
+            c["hex"],
+            c.get("flight"),
+            c.get("type"),
+            c.get("lat"),
+            c.get("lon"),
+            c.get("alt_baro"),
+            c.get("gs"),
+            c["ew_role"],
+            c["ew_confidence"],
+            c.get("ew_basis"),
+            1 if c.get("in_orbit") else 0,
+            1 if c.get("near_cluster") else 0,
+        )
+        for c in ew_contacts
+    ]
+    conn.executemany(
+        """INSERT INTO ew_contacts
+           (snapshot_time, hex, flight, type, lat, lon, alt_baro, gs,
+            ew_role, ew_confidence, ew_basis, in_orbit, near_cluster)
+           VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+        rows,
+    )
+    conn.commit()
+
+
+def get_recent_ew(conn, hours=24):
+    """Return EW contacts from the last N hours as a list of dicts."""
+    cur = conn.execute(
+        """SELECT * FROM ew_contacts
+           WHERE snapshot_time >= datetime('now', '-' || ? || ' hours')
+           ORDER BY snapshot_time DESC""",
+        (hours,),
+    )
+    return [dict(r) for r in cur.fetchall()]
 
 
 def get_last_qc_count(conn):
