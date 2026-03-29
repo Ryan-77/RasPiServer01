@@ -15,6 +15,7 @@ import requests
 from datetime import datetime, timezone
 
 import db
+import qc
 from detectors.ghost import detect_ghosts
 from detectors.cluster import detect_clusters
 from detectors.circular import detect_circular_flight
@@ -60,6 +61,21 @@ def run_cycle(conn):
         print("  No data returned.", flush=True)
         return
     print(f"  {len(snapshot)} military aircraft globally", flush=True)
+
+    # 1a. QC — evaluate snapshot quality before persisting
+    prev_count = db.get_last_qc_count(conn)
+    qc_record  = qc.compute_snapshot_qc(snapshot, prev_count)
+    qc.insert_snapshot_qc(conn, qc_record)
+
+    flag     = qc_record["quality_flag"]
+    cov      = qc_record["coverage_pct"]
+    count    = qc_record["aircraft_count"]
+    reasons  = qc_record["fail_reasons"] or "none"
+    print(f"  QC [{flag}] count={count} coverage={cov:.1%} reasons={reasons}", flush=True)
+
+    if flag == "FAILED":
+        print("  [ABORT] Snapshot has FAILED QC — skipping persist and detection.", flush=True)
+        return
 
     # 2. Persist positions
     db.insert_positions(conn, snapshot, ts, tag_region)

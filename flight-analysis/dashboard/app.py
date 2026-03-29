@@ -58,6 +58,54 @@ def load_positions(minutes: int) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)
+def load_qc_data():
+    """
+    Returns (qc_summary dict, qc_df DataFrame of last 24 h).
+    Both may be empty/None if the snapshot_qc table doesn't exist yet.
+    """
+    with _conn() as conn:
+        try:
+            summary = {}
+            cur = conn.cursor()
+
+            cur.execute(
+                "SELECT quality_flag FROM snapshot_qc ORDER BY snapshot_time DESC LIMIT 1"
+            )
+            row = cur.fetchone()
+            summary["latest_flag"] = row[0] if row else None
+
+            cur.execute(
+                """SELECT
+                       COUNT(*)                                             AS total,
+                       SUM(CASE WHEN quality_flag = 'OK' THEN 1 ELSE 0 END) AS ok_count,
+                       AVG(coverage_pct)                                   AS avg_cov,
+                       AVG(ABS(dropout_vs_prev))                           AS avg_drop
+                   FROM snapshot_qc
+                   WHERE snapshot_time >= datetime('now', '-24 hours')"""
+            )
+            row = cur.fetchone()
+            total, ok_count, avg_cov, avg_drop = row if row else (0, 0, None, None)
+
+            summary["pct_ok_24h"]       = (ok_count / total) if total else None
+            summary["avg_coverage_24h"] = avg_cov
+            summary["avg_dropout_24h"]  = avg_drop
+
+            qc_df = pd.read_sql(
+                """SELECT snapshot_time, aircraft_count, coverage_pct,
+                          type_coverage_pct, dropout_vs_prev, quality_flag, fail_reasons
+                   FROM snapshot_qc
+                   WHERE snapshot_time >= datetime('now', '-24 hours')
+                   ORDER BY snapshot_time ASC""",
+                conn,
+            )
+            return summary, qc_df
+
+        except Exception:
+            # Table may not exist yet (first run before monitor.py)
+            return {}, pd.DataFrame()
+
+
+@st.cache_data(ttl=60)
 def load_alerts(limit: int = 100) -> pd.DataFrame:
     with _conn() as conn:
         return pd.read_sql(
@@ -143,6 +191,7 @@ st.sidebar.caption("Auto-refreshes every 60 s")
 positions                  = load_positions(track_window)
 alerts                     = load_alerts()
 last_update, ac_24h, ac_now, alerts_24h, nttr, uttr = load_kpis()
+qc_summary, qc_df          = load_qc_data()
 
 alerts_filtered = (
     alerts[alerts["severity"].isin(sev_filter)]
@@ -170,7 +219,14 @@ st.caption(
 
 # ── KPI Bar ───────────────────────────────────────────────────────────────────
 
-k1, k2, k3, k4, k5, k6 = st.columns(6)
+QC_FLAG_COLOR = {
+    "OK":       "#2ECC40",
+    "DEGRADED": "#FFDC00",
+    "POOR":     "#FF851B",
+    "FAILED":   "#FF4136",
+}
+
+k1, k2, k3, k4, k5, k6, k7 = st.columns(7)
 k1.metric("Aircraft (24 h)",       ac_24h)
 k2.metric("Current Snapshot",      ac_now)
 k3.metric("Alerts (24 h)",         alerts_24h,
@@ -180,6 +236,15 @@ k4.metric("NTTR Active (2 h)",     nttr)
 k5.metric("UTTR Active (2 h)",     uttr)
 k6.metric("Last Update",
           last_update[11:16] + " UTC" if last_update and last_update != "—" else "—")
+
+# QC status KPI — render with colour via markdown since st.metric doesn't support colours
+_qc_flag = qc_summary.get("latest_flag") or "—"
+_qc_color = QC_FLAG_COLOR.get(_qc_flag, "#888888")
+k7.markdown(
+    f"**Feed Quality**  \n"
+    f"<span style='color:{_qc_color}; font-size:1.4rem; font-weight:700'>{_qc_flag}</span>",
+    unsafe_allow_html=True,
+)
 
 st.markdown("---")
 
@@ -362,7 +427,94 @@ else:
 
 st.markdown("---")
 
-# ── SECTION 3: ALERT DETAIL — FLIGHT PATH REPLAY ─────────────────────────────
+# ── SECTION 3: DATA QUALITY MONITOR ──────────────────────────────────────────
+
+st.subheader("Data Quality Monitor")
+
+if qc_summary.get("latest_flag") is None:
+    st.info("No QC data yet. Run `python monitor.py` to collect a snapshot.")
+else:
+    # ── 4 QC KPI columns ─────────────────────────────────────────────────────
+    qc1, qc2, qc3, qc4 = st.columns(4)
+
+    _flag  = qc_summary.get("latest_flag") or "—"
+    _color = QC_FLAG_COLOR.get(_flag, "#888888")
+    qc1.markdown(
+        f"**Current QC**  \n"
+        f"<span style='color:{_color}; font-size:1.4rem; font-weight:700'>{_flag}</span>",
+        unsafe_allow_html=True,
+    )
+
+    _avg_cov = qc_summary.get("avg_coverage_24h")
+    qc2.metric(
+        "Coverage 24 h avg",
+        f"{_avg_cov:.1%}" if _avg_cov is not None else "—",
+    )
+
+    _pct_ok = qc_summary.get("pct_ok_24h")
+    qc3.metric(
+        "Snapshots OK 24 h",
+        f"{_pct_ok:.1%}" if _pct_ok is not None else "—",
+    )
+
+    _avg_drop = qc_summary.get("avg_dropout_24h")
+    qc4.metric(
+        "Avg Dropout",
+        f"{_avg_drop:.1%}" if _avg_drop is not None else "—",
+    )
+
+    # ── Aircraft count over time ──────────────────────────────────────────────
+    if not qc_df.empty:
+        fig_qc = go.Figure()
+        fig_qc.add_trace(go.Scatter(
+            x=qc_df["snapshot_time"],
+            y=qc_df["aircraft_count"],
+            mode="lines+markers",
+            line=dict(color="#7FDBFF", width=2),
+            marker=dict(size=4),
+            name="Aircraft count",
+            hovertemplate="Time: %{x}<br>Count: %{y}<extra></extra>",
+        ))
+        fig_qc.update_layout(
+            height=220,
+            margin=dict(l=0, r=0, t=24, b=0),
+            paper_bgcolor="#0e1117",
+            plot_bgcolor="#0e1117",
+            xaxis=dict(color="#aaa", showgrid=False, title=None),
+            yaxis=dict(color="#aaa", gridcolor="#222", title="Aircraft"),
+            title=dict(text="Aircraft Count — Last 24 h", font=dict(color="#ccc", size=13)),
+        )
+        st.plotly_chart(fig_qc, use_container_width=True)
+
+    # ── Full QC log expander ──────────────────────────────────────────────────
+    with st.expander("📋 Full QC Log (last 24 h)", expanded=False):
+        if qc_df.empty:
+            st.info("No QC records in the last 24 hours.")
+        else:
+            display_qc = qc_df.copy()
+            display_qc["snapshot_time"]   = display_qc["snapshot_time"].str[:16]
+            display_qc["coverage_pct"]    = display_qc["coverage_pct"].map(lambda v: f"{v:.1%}" if pd.notna(v) else "—")
+            display_qc["type_coverage_pct"] = display_qc["type_coverage_pct"].map(lambda v: f"{v:.1%}" if pd.notna(v) else "—")
+            display_qc["dropout_vs_prev"] = display_qc["dropout_vs_prev"].map(lambda v: f"{v:.1%}" if pd.notna(v) else "—")
+            display_qc["fail_reasons"]    = display_qc["fail_reasons"].fillna("").replace("", "none")
+            st.dataframe(
+                display_qc,
+                use_container_width=True,
+                hide_index=True,
+                column_config={
+                    "snapshot_time":     st.column_config.TextColumn("Time (UTC)",      width="small"),
+                    "aircraft_count":    st.column_config.NumberColumn("Count",          width="small"),
+                    "coverage_pct":      st.column_config.TextColumn("Coverage",        width="small"),
+                    "type_coverage_pct": st.column_config.TextColumn("Type Cov",        width="small"),
+                    "dropout_vs_prev":   st.column_config.TextColumn("Dropout",         width="small"),
+                    "quality_flag":      st.column_config.TextColumn("Flag",            width="small"),
+                    "fail_reasons":      st.column_config.TextColumn("Fail Reasons",    width="medium"),
+                },
+            )
+
+st.markdown("---")
+
+# ── SECTION 4: ALERT DETAIL — FLIGHT PATH REPLAY ─────────────────────────────
 
 st.subheader("Alert Detail — Flight Path Replay")
 
@@ -478,7 +630,7 @@ else:
 
 st.markdown("---")
 
-# ── SECTION 4: RAW LATEST SNAPSHOT ───────────────────────────────────────────
+# ── SECTION 5: RAW LATEST SNAPSHOT ───────────────────────────────────────────
 
 with st.expander("📋 Latest Snapshot — Raw Positions", expanded=False):
     if positions.empty:

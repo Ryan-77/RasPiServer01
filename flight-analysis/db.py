@@ -4,6 +4,8 @@ import math
 import os
 from datetime import datetime, timezone
 
+import qc as qc_module
+
 DB_PATH = os.path.join(os.path.dirname(__file__), "data", "monitor.db")
 ALERTS_CSV = os.path.join(os.path.dirname(__file__), "data", "alerts.csv")
 
@@ -53,6 +55,8 @@ def init_db(conn):
         CREATE INDEX IF NOT EXISTS idx_positions_hex  ON aircraft_positions(hex);
         CREATE INDEX IF NOT EXISTS idx_alerts_time    ON alerts(timestamp);
     """)
+    # Initialise QC table (defined in qc.py to avoid circular imports)
+    qc_module.init_qc_table(conn)
     # Migrate existing DB if columns are missing
     for col, typedef in [("centroid_lat", "REAL"), ("centroid_lon", "REAL")]:
         try:
@@ -184,3 +188,12 @@ def export_alerts_csv(conn, path=ALERTS_CSV):
         writer = csv.writer(f)
         writer.writerow([d[0] for d in cur.description])
         writer.writerows(rows)
+
+
+def get_last_qc_count(conn):
+    """Return the aircraft_count from the most recent QC snapshot, or None."""
+    cur = conn.execute(
+        "SELECT aircraft_count FROM snapshot_qc ORDER BY snapshot_time DESC LIMIT 1"
+    )
+    row = cur.fetchone()
+    return row[0] if row else None
