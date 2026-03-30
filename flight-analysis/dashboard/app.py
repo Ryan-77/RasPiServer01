@@ -761,7 +761,7 @@ else:
                             lat=circ_lats,
                             lon=circ_lons,
                             mode="lines",
-                            line=dict(color="#00BFFF", width=2, dash="dash"),  # type: ignore[call-arg]
+                            line=dict(color="#00BFFF", width=2),
                             name=f"Tanker orbit (~{radius_nm:.0f}nm)",
                             hoverinfo="skip",
                         ))
@@ -1013,7 +1013,7 @@ else:
                             lat=circ_lats,
                             lon=circ_lons,
                             mode="lines",
-                            line=dict(color=line_color, width=2, dash="dash"),  # type: ignore[call-arg]
+                            line=dict(color=line_color, width=2),
                             name=f"Orbit circle (~{radius_nm:.0f}nm)",
                             hoverinfo="skip",
                         ))
