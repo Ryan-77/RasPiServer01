@@ -123,6 +123,37 @@ def load_ew_contacts(hours: int = 24) -> pd.DataFrame:
 
 
 @st.cache_data(ttl=60)
+def load_alt_profile(hex_list: tuple, minutes: int) -> pd.DataFrame:
+    """Load position history for specific hexes for altitude charting."""
+    with _conn() as conn:
+        placeholders = ','.join('?' * len(hex_list))
+        return pd.read_sql(
+            f"""SELECT hex, flight, snapshot_time, alt_baro, gs, lat, lon
+                FROM aircraft_positions
+                WHERE hex IN ({placeholders})
+                AND snapshot_time >= datetime('now', '-' || ? || ' minutes')
+                ORDER BY hex, snapshot_time""",
+            conn, params=list(hex_list) + [minutes]
+        )
+
+
+@st.cache_data(ttl=60)
+def load_ew_for_hexes(hex_list: tuple) -> pd.DataFrame:
+    """Load EW contact details for a specific set of hexes."""
+    with _conn() as conn:
+        try:
+            placeholders = ','.join('?' * len(hex_list))
+            return pd.read_sql(
+                f"""SELECT * FROM ew_contacts
+                    WHERE hex IN ({placeholders})
+                    ORDER BY snapshot_time DESC""",
+                conn, params=list(hex_list)
+            )
+        except Exception:
+            return pd.DataFrame()
+
+
+@st.cache_data(ttl=60)
 def load_alerts(limit: int = 100) -> pd.DataFrame:
     with _conn() as conn:
         return pd.read_sql(
@@ -614,9 +645,42 @@ else:
 
 st.markdown("---")
 
-# ── SECTION 4: ALERT DETAIL — FLIGHT PATH REPLAY ─────────────────────────────
+# ── SECTION 4: ALERT DETAIL — CONTEXT-AWARE VISUALIZATION ───────────────────
 
-st.subheader("Alert Detail — Flight Path Replay")
+import math
+import re
+
+
+def _circle_points(lat, lon, radius_nm, n_points=72):
+    """Generate lat/lon points for a circle of radius_nm nautical miles around lat/lon."""
+    points_lat = []
+    points_lon = []
+    for i in range(n_points + 1):
+        angle = math.radians(i * 360 / n_points)
+        dlat = (radius_nm / 60.0) * math.cos(angle)
+        dlon = (radius_nm / 60.0) * math.sin(angle) / math.cos(math.radians(lat))
+        points_lat.append(lat + dlat)
+        points_lon.append(lon + dlon)
+    return points_lat, points_lon
+
+
+def _haversine_nm(lat1, lon1, lat2, lon2):
+    """Haversine distance in nautical miles."""
+    R = 3440.065  # Earth radius in nm
+    phi1, phi2 = math.radians(lat1), math.radians(lat2)
+    dphi = math.radians(lat2 - lat1)
+    dlam = math.radians(lon2 - lon1)
+    a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlam/2)**2
+    return 2 * R * math.asin(math.sqrt(a))
+
+
+def _parse_orbit_radius(detail_text):
+    """Try to extract radius in nm from alert detail string. Returns float or default 15.0."""
+    m = re.search(r'r=([\d.]+)nm', detail_text or '')
+    return float(m.group(1)) if m else 15.0
+
+
+st.subheader("Alert Detail — Context-Aware Visualization")
 
 if alerts.empty:
     st.info("No alerts to inspect yet.")
@@ -629,14 +693,15 @@ else:
     chosen_label = st.selectbox("Select alert to inspect:", ["— select —"] + list(options.keys()))
 
     if chosen_label != "— select —":
-        sel = alerts.loc[options[chosen_label]]
+        sel      = alerts.loc[options[chosen_label]]
+        atype    = sel["alert_type"]
 
-        # Info card ─────────────────────────────────────────────────────────
+        # ── Info card (unchanged for all alert types) ───────────────────────
         col_info, col_meta = st.columns([3, 1])
         with col_info:
             st.markdown(
                 f"**{SEVERITY_EMOJI.get(sel['severity'],'')} "
-                f"{sel['alert_type'].replace('_',' ')}**  \n"
+                f"{atype.replace('_',' ')}**  \n"
                 f"{sel['summary']}  \n  \n"
                 f"{sel['detail']}"
             )
@@ -645,7 +710,7 @@ else:
             st.markdown(f"**Severity:** {sel['severity']}")
             st.markdown(f"**Region:** {sel.get('region') or 'Global'}")
 
-        # Pull positions for the aircraft in this alert ─────────────────────
+        # ── Build hex list ──────────────────────────────────────────────────
         hex_list = [
             h.strip()
             for h in (sel["aircraft_hexes"] or "").split(",")
@@ -665,68 +730,713 @@ else:
                     "Extend the Track History Window in the sidebar."
                 )
             else:
-                fig_det = go.Figure()
-                line_color = ALERT_LINE_COLOR.get(sel["alert_type"], "#FF851B")
+                det_lat = (
+                    sel.get("centroid_lat")
+                    if pd.notna(sel.get("centroid_lat")) and sel.get("centroid_lat") is not None
+                    else alert_pos["lat"].dropna().mean()
+                )
+                det_lon = (
+                    sel.get("centroid_lon")
+                    if pd.notna(sel.get("centroid_lon")) and sel.get("centroid_lon") is not None
+                    else alert_pos["lon"].dropna().mean()
+                )
 
-                for hex_id in hex_list:
-                    ac_hist = alert_pos[alert_pos["hex"] == hex_id].sort_values("snapshot_time")
-                    if ac_hist.empty or ac_hist["lat"].isna().all():
-                        continue
+                # ════════════════════════════════════════════════════════════
+                # PROBABLE_REFUELING_OP
+                # ════════════════════════════════════════════════════════════
+                if atype == "PROBABLE_REFUELING_OP":
+                    st.caption("Tanker orbit + receiver tracks")
 
-                    label = (
-                        ac_hist["flight"].dropna().iloc[-1]
-                        if not ac_hist["flight"].dropna().empty else hex_id
-                    )
-                    ac_type = (
-                        ac_hist["type"].dropna().iloc[-1]
-                        if not ac_hist["type"].dropna().empty else "—"
-                    )
+                    # First hex in list is assumed tanker (orbit aircraft)
+                    tanker_hex   = hex_list[0]
+                    receiver_hexes = hex_list[1:]
 
-                    # Larger dot on most recent position
-                    sizes = [5] * (len(ac_hist) - 1) + [14]
+                    fig_det = go.Figure()
 
-                    fig_det.add_trace(go.Scattermapbox(
-                        lat=ac_hist["lat"].tolist(),
-                        lon=ac_hist["lon"].tolist(),
-                        mode="lines+markers",
-                        line=dict(color=line_color, width=3),
-                        marker=dict(size=sizes, color=line_color),
-                        name=f"{label} ({ac_type})",
-                        hovertemplate=(
-                            f"<b>{label}</b> ({ac_type})<br>"
-                            "Time: %{customdata[0]}<br>"
-                            "Alt: %{customdata[1]}<br>"
-                            "Speed: %{customdata[2]} kts<br>"
-                            "<extra></extra>"
+                    # Orbit circle overlay ───────────────────────────────────
+                    if pd.notna(det_lat) and pd.notna(det_lon):
+                        radius_nm = _parse_orbit_radius(sel.get("detail"))
+                        circ_lats, circ_lons = _circle_points(det_lat, det_lon, radius_nm)
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=circ_lats,
+                            lon=circ_lons,
+                            mode="lines",
+                            line=dict(color="#00BFFF", width=2, dash="dash"),  # type: ignore[call-arg]
+                            name=f"Tanker orbit (~{radius_nm:.0f}nm)",
+                            hoverinfo="skip",
+                        ))
+
+                    # Tanker track — blue ────────────────────────────────────
+                    tanker_hist = alert_pos[alert_pos["hex"] == tanker_hex].sort_values("snapshot_time")
+                    if not tanker_hist.empty and not tanker_hist["lat"].isna().all():
+                        t_label = (
+                            tanker_hist["flight"].dropna().iloc[-1]
+                            if not tanker_hist["flight"].dropna().empty else tanker_hex
+                        )
+                        t_type = (
+                            tanker_hist["type"].dropna().iloc[-1]
+                            if not tanker_hist["type"].dropna().empty else "—"
+                        )
+                        sizes = [5] * (len(tanker_hist) - 1) + [14]
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=tanker_hist["lat"].tolist(),
+                            lon=tanker_hist["lon"].tolist(),
+                            mode="lines+markers",
+                            line=dict(color="#00BFFF", width=3),
+                            marker=dict(size=sizes, color="#00BFFF"),
+                            name=f"Tanker: {t_label} ({t_type})",
+                            hovertemplate=(
+                                f"<b>TANKER {t_label}</b> ({t_type})<br>"
+                                "Time: %{customdata[0]}<br>"
+                                "Alt: %{customdata[1]}<br>"
+                                "Speed: %{customdata[2]} kts<br>"
+                                "<extra></extra>"
+                            ),
+                            customdata=list(zip(
+                                tanker_hist["snapshot_time"].str[11:16],
+                                tanker_hist["alt_baro"].fillna("—"),
+                                tanker_hist["gs"].fillna(0).round(0),
+                            )),
+                        ))
+
+                    # Receiver tracks — orange ───────────────────────────────
+                    for hex_id in receiver_hexes:
+                        ac_hist = alert_pos[alert_pos["hex"] == hex_id].sort_values("snapshot_time")
+                        if ac_hist.empty or ac_hist["lat"].isna().all():
+                            continue
+                        label = (
+                            ac_hist["flight"].dropna().iloc[-1]
+                            if not ac_hist["flight"].dropna().empty else hex_id
+                        )
+                        ac_type = (
+                            ac_hist["type"].dropna().iloc[-1]
+                            if not ac_hist["type"].dropna().empty else "—"
+                        )
+                        sizes = [5] * (len(ac_hist) - 1) + [14]
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=ac_hist["lat"].tolist(),
+                            lon=ac_hist["lon"].tolist(),
+                            mode="lines+markers",
+                            line=dict(color="#FF851B", width=3),
+                            marker=dict(size=sizes, color="#FF851B"),
+                            name=f"Receiver: {label} ({ac_type})",
+                            hovertemplate=(
+                                f"<b>RECEIVER {label}</b> ({ac_type})<br>"
+                                "Time: %{customdata[0]}<br>"
+                                "Alt: %{customdata[1]}<br>"
+                                "Speed: %{customdata[2]} kts<br>"
+                                "<extra></extra>"
+                            ),
+                            customdata=list(zip(
+                                ac_hist["snapshot_time"].str[11:16],
+                                ac_hist["alt_baro"].fillna("—"),
+                                ac_hist["gs"].fillna(0).round(0),
+                            )),
+                        ))
+
+                    fig_det.update_layout(
+                        mapbox=dict(
+                            style="open-street-map",
+                            center=dict(lat=det_lat, lon=det_lon),
+                            zoom=6,
                         ),
-                        customdata=list(zip(
-                            ac_hist["snapshot_time"].str[11:16],
-                            ac_hist["alt_baro"].fillna("—"),
-                            ac_hist["gs"].fillna(0).round(0),
-                        )),
-                    ))
+                        height=500,
+                        margin=dict(l=0, r=0, t=0, b=0),
+                        paper_bgcolor="#0e1117",
+                        legend=dict(bgcolor="rgba(0,0,0,0.6)", font=dict(color="white")),
+                    )
+                    st.plotly_chart(fig_det, use_container_width=True)
 
-                det_lat = sel.get("centroid_lat") or alert_pos["lat"].dropna().mean()
-                det_lon = sel.get("centroid_lon") or alert_pos["lon"].dropna().mean()
+                    # Altitude profile chart ──────────────────────────────────
+                    alt_df = load_alt_profile(tuple(hex_list), track_window)
+                    if not alt_df.empty:
+                        # Convert alt_baro to numeric (may be "ground" or similar strings)
+                        alt_df = alt_df.copy()
+                        alt_df["alt_baro_num"] = pd.to_numeric(alt_df["alt_baro"], errors="coerce")
+                        alt_df_valid = alt_df.dropna(subset=["alt_baro_num"])
 
-                fig_det.update_layout(
-                    mapbox=dict(
-                        style="open-street-map",
-                        center=dict(lat=det_lat, lon=det_lon),
-                        zoom=6,
-                    ),
-                    height=500,
-                    margin=dict(l=0, r=0, t=0, b=0),
-                    paper_bgcolor="#0e1117",
-                    legend=dict(bgcolor="rgba(0,0,0,0.6)", font=dict(color="white")),
-                )
+                        if not alt_df_valid.empty:
+                            fig_alt = go.Figure()
+                            for hex_id in hex_list:
+                                ac_alt = alt_df_valid[alt_df_valid["hex"] == hex_id].sort_values("snapshot_time")
+                                if ac_alt.empty:
+                                    continue
+                                label = (
+                                    ac_alt["flight"].dropna().iloc[-1]
+                                    if not ac_alt["flight"].dropna().empty else hex_id
+                                )
+                                color = "#00BFFF" if hex_id == tanker_hex else "#FF851B"
+                                fig_alt.add_trace(go.Scatter(
+                                    x=ac_alt["snapshot_time"],
+                                    y=ac_alt["alt_baro_num"],
+                                    mode="lines+markers",
+                                    line=dict(color=color, width=2),
+                                    marker=dict(size=4, color=color),
+                                    name=label,
+                                    hovertemplate=(
+                                        f"<b>{label}</b><br>"
+                                        "Time: %{x}<br>"
+                                        "Alt: %{y} ft<br>"
+                                        "<extra></extra>"
+                                    ),
+                                ))
+                            fig_alt.update_layout(
+                                height=250,
+                                margin=dict(l=0, r=0, t=28, b=0),
+                                paper_bgcolor="#0e1117",
+                                plot_bgcolor="#0e1117",
+                                xaxis=dict(color="#aaa", showgrid=False, title=None),
+                                yaxis=dict(color="#aaa", gridcolor="#222", title="Altitude (ft)"),
+                                title=dict(
+                                    text="Altitude Profile — Tanker (blue) vs Receivers (orange)",
+                                    font=dict(color="#ccc", size=13),
+                                ),
+                                legend=dict(bgcolor="rgba(0,0,0,0.6)", font=dict(color="white")),
+                            )
+                            st.plotly_chart(fig_alt, use_container_width=True)
 
-                st.plotly_chart(fig_det, use_container_width=True)
-                st.caption(
-                    f"Showing last **{track_window} min** of position history for "
-                    f"**{len(hex_list)}** aircraft in this alert. "
-                    "Larger dot = most recent position. Extend the window in the sidebar to see older tracks."
-                )
+                    st.caption(
+                        f"Showing last **{track_window} min** of position history. "
+                        "Blue = tanker, Orange = receivers. Dashed circle = estimated orbit radius."
+                    )
+
+                # ════════════════════════════════════════════════════════════
+                # FORMATION_ACTIVITY / ATTACK_PACKAGE
+                # ════════════════════════════════════════════════════════════
+                elif atype in ("FORMATION_ACTIVITY", "ATTACK_PACKAGE"):
+                    fig_det = go.Figure()
+
+                    # Per-snapshot scatter with time-based opacity ────────────
+                    all_snaps = sorted(alert_pos["snapshot_time"].unique())
+                    n_snaps   = len(all_snaps)
+
+                    for snap_i, snap_ts in enumerate(all_snaps):
+                        opacity = 0.2 + 0.8 * (snap_i / max(n_snaps - 1, 1))
+                        snap_df = alert_pos[alert_pos["snapshot_time"] == snap_ts].dropna(subset=["lat", "lon"])
+                        if snap_df.empty:
+                            continue
+                        is_latest = snap_ts == all_snaps[-1]
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=snap_df["lat"].tolist(),
+                            lon=snap_df["lon"].tolist(),
+                            mode="markers",
+                            marker=dict(
+                                size=8 if not is_latest else 12,
+                                color="#0074D9",
+                                opacity=opacity,
+                            ),
+                            name=snap_ts[11:16] if not is_latest else f"Latest ({snap_ts[11:16]})",
+                            hovertemplate=(
+                                "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
+                                "Time: %{customdata[2]}<br>"
+                                "Alt: %{customdata[3]}<br>"
+                                "<extra></extra>"
+                            ),
+                            customdata=list(zip(
+                                snap_df["flight"].fillna("—"),
+                                snap_df["type"].fillna("—"),
+                                snap_df["snapshot_time"].str[11:16],
+                                snap_df["alt_baro"].fillna("—"),
+                            )),
+                            showlegend=is_latest,
+                        ))
+
+                    # Lines connecting aircraft at latest snapshot ────────────
+                    latest_snap_df = alert_pos[
+                        alert_pos["snapshot_time"] == all_snaps[-1]
+                    ].dropna(subset=["lat", "lon"])
+
+                    if len(latest_snap_df) >= 2:
+                        lats_conn = []
+                        lons_conn = []
+                        pts = list(zip(latest_snap_df["lat"], latest_snap_df["lon"]))
+                        for i in range(len(pts)):
+                            for j in range(i + 1, len(pts)):
+                                lats_conn += [pts[i][0], pts[j][0], None]
+                                lons_conn += [pts[i][1], pts[j][1], None]
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=lats_conn,
+                            lon=lons_conn,
+                            mode="lines",
+                            line=dict(color="#0074D9", width=1),
+                            name="Formation geometry (latest)",
+                            hoverinfo="skip",
+                            opacity=0.6,
+                        ))
+
+                    fig_det.update_layout(
+                        mapbox=dict(
+                            style="open-street-map",
+                            center=dict(lat=det_lat, lon=det_lon),
+                            zoom=6,
+                        ),
+                        height=500,
+                        margin=dict(l=0, r=0, t=0, b=0),
+                        paper_bgcolor="#0e1117",
+                        legend=dict(bgcolor="rgba(0,0,0,0.6)", font=dict(color="white")),
+                    )
+                    st.plotly_chart(fig_det, use_container_width=True)
+
+                    # Formation spread metric ─────────────────────────────────
+                    if len(latest_snap_df) >= 2:
+                        pts = list(zip(latest_snap_df["lat"], latest_snap_df["lon"]))
+                        max_dist = 0.0
+                        for i in range(len(pts)):
+                            for j in range(i + 1, len(pts)):
+                                d = _haversine_nm(pts[i][0], pts[i][1], pts[j][0], pts[j][1])
+                                if d > max_dist:
+                                    max_dist = d
+                        st.metric(
+                            "Formation Spread (latest snapshot)",
+                            f"{max_dist:.1f} nm",
+                            help="Max distance between any two aircraft in the formation.",
+                        )
+
+                    st.caption(
+                        f"Showing last **{track_window} min** of formation positions. "
+                        "Older positions are more transparent. Lines show current formation geometry."
+                    )
+
+                # ════════════════════════════════════════════════════════════
+                # HOLDING_ORBIT
+                # ════════════════════════════════════════════════════════════
+                elif atype == "HOLDING_ORBIT":
+                    fig_det = go.Figure()
+
+                    line_color = ALERT_LINE_COLOR.get(atype, "#FF851B")
+
+                    # Orbit circle overlay ───────────────────────────────────
+                    if pd.notna(det_lat) and pd.notna(det_lon):
+                        radius_nm = _parse_orbit_radius(sel.get("detail"))
+                        circ_lats, circ_lons = _circle_points(det_lat, det_lon, radius_nm)
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=circ_lats,
+                            lon=circ_lons,
+                            mode="lines",
+                            line=dict(color=line_color, width=2, dash="dash"),  # type: ignore[call-arg]
+                            name=f"Orbit circle (~{radius_nm:.0f}nm)",
+                            hoverinfo="skip",
+                        ))
+
+                    # Determine CW/CCW from detail text
+                    detail_text = sel.get("detail") or ""
+                    direction   = "CW" if "CW" in detail_text.upper() else "CCW"
+
+                    # Aircraft tracks ────────────────────────────────────────
+                    for hex_id in hex_list:
+                        ac_hist = alert_pos[alert_pos["hex"] == hex_id].sort_values("snapshot_time")
+                        if ac_hist.empty or ac_hist["lat"].isna().all():
+                            continue
+                        label = (
+                            ac_hist["flight"].dropna().iloc[-1]
+                            if not ac_hist["flight"].dropna().empty else hex_id
+                        )
+                        ac_type = (
+                            ac_hist["type"].dropna().iloc[-1]
+                            if not ac_hist["type"].dropna().empty else "—"
+                        )
+                        sizes = [5] * (len(ac_hist) - 1) + [14]
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=ac_hist["lat"].tolist(),
+                            lon=ac_hist["lon"].tolist(),
+                            mode="lines+markers",
+                            line=dict(color=line_color, width=3),
+                            marker=dict(size=sizes, color=line_color),
+                            name=f"{label} ({ac_type})",
+                            hovertemplate=(
+                                f"<b>{label}</b> ({ac_type})<br>"
+                                "Time: %{customdata[0]}<br>"
+                                "Alt: %{customdata[1]}<br>"
+                                "Speed: %{customdata[2]} kts<br>"
+                                "<extra></extra>"
+                            ),
+                            customdata=list(zip(
+                                ac_hist["snapshot_time"].str[11:16],
+                                ac_hist["alt_baro"].fillna("—"),
+                                ac_hist["gs"].fillna(0).round(0),
+                            )),
+                        ))
+
+                        # Direction arrow annotation — place at centroid
+                        if pd.notna(det_lat) and pd.notna(det_lon):
+                            arrow_symbol = "↻" if direction == "CW" else "↺"
+                            fig_det.add_trace(go.Scattermapbox(
+                                lat=[det_lat],
+                                lon=[det_lon],
+                                mode="text",
+                                text=[f"{arrow_symbol} {direction}"],
+                                textfont=dict(size=18, color=line_color),
+                                name=f"Direction: {direction}",
+                                hoverinfo="skip",
+                                showlegend=False,
+                            ))
+
+                    fig_det.update_layout(
+                        mapbox=dict(
+                            style="open-street-map",
+                            center=dict(lat=det_lat, lon=det_lon),
+                            zoom=6,
+                        ),
+                        height=500,
+                        margin=dict(l=0, r=0, t=0, b=0),
+                        paper_bgcolor="#0e1117",
+                        legend=dict(bgcolor="rgba(0,0,0,0.6)", font=dict(color="white")),
+                    )
+                    st.plotly_chart(fig_det, use_container_width=True)
+
+                    # Cumulative heading chart ────────────────────────────────
+                    if len(hex_list) == 1:
+                        ac_hist = alert_pos[alert_pos["hex"] == hex_list[0]].sort_values("snapshot_time")
+                        lats    = ac_hist["lat"].dropna().tolist()
+                        lons    = ac_hist["lon"].dropna().tolist()
+
+                        if len(lats) >= 2:
+                            cum_headings = [0.0]
+                            for k in range(1, len(lats)):
+                                dlat = lats[k] - lats[k - 1]
+                                dlon = lons[k] - lons[k - 1]
+                                hdg  = math.degrees(math.atan2(dlon, dlat)) % 360
+                                prev_hdg = (math.degrees(math.atan2(
+                                    lons[k - 1] - (lons[k - 2] if k >= 2 else lons[k - 1]),
+                                    lats[k - 1] - (lats[k - 2] if k >= 2 else lats[k - 1]),
+                                )) % 360)
+                                delta = (hdg - prev_hdg + 180) % 360 - 180
+                                cum_headings.append(cum_headings[-1] + delta)
+
+                            snap_times = ac_hist["snapshot_time"].tolist()[:len(cum_headings)]
+
+                            fig_hdg = go.Figure()
+                            fig_hdg.add_trace(go.Scatter(
+                                x=snap_times,
+                                y=cum_headings,
+                                mode="lines+markers",
+                                line=dict(color=line_color, width=2),
+                                marker=dict(size=4, color=line_color),
+                                name="Cumulative heading",
+                                hovertemplate=(
+                                    "Time: %{x}<br>"
+                                    "Cumulative heading: %{y:.0f}°<br>"
+                                    "<extra></extra>"
+                                ),
+                            ))
+                            fig_hdg.update_layout(
+                                height=220,
+                                margin=dict(l=0, r=0, t=28, b=0),
+                                paper_bgcolor="#0e1117",
+                                plot_bgcolor="#0e1117",
+                                xaxis=dict(color="#aaa", showgrid=False, title=None),
+                                yaxis=dict(color="#aaa", gridcolor="#222", title="Cumulative Heading (°)"),
+                                title=dict(
+                                    text=f"Cumulative Heading Rotation — {direction} orbit",
+                                    font=dict(color="#ccc", size=13),
+                                ),
+                            )
+                            st.plotly_chart(fig_hdg, use_container_width=True)
+
+                    st.caption(
+                        f"Showing last **{track_window} min** of orbit track. "
+                        f"Dashed circle = estimated orbit. Direction: **{direction}**."
+                    )
+
+                # ════════════════════════════════════════════════════════════
+                # SENSITIVE_ASSET_ACTIVITY / UNIDENTIFIED_CONTACTS
+                # ════════════════════════════════════════════════════════════
+                elif atype in ("SENSITIVE_ASSET_ACTIVITY", "UNIDENTIFIED_CONTACTS"):
+                    fig_det = go.Figure()
+
+                    # Distinguish ghost hexes (no flight/reg/type) from cluster hexes
+                    latest_alert_pos = alert_pos[
+                        alert_pos["snapshot_time"] == alert_pos["snapshot_time"].max()
+                    ]
+
+                    ghost_mask = (
+                        latest_alert_pos["flight"].isna() &
+                        latest_alert_pos["registration"].isna() &
+                        latest_alert_pos["type"].isna()
+                    )
+                    ghost_df   = latest_alert_pos[ghost_mask].dropna(subset=["lat", "lon"])
+                    cluster_df = latest_alert_pos[~ghost_mask].dropna(subset=["lat", "lon"])
+
+                    # Ghost X markers — purple ───────────────────────────────
+                    if not ghost_df.empty:
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=ghost_df["lat"].tolist(),
+                            lon=ghost_df["lon"].tolist(),
+                            mode="markers",
+                            marker=dict(size=14, color="#B10DC9", symbol="x"),
+                            name="Ghost Contact",
+                            hovertemplate=(
+                                "<b>Ghost contact</b><br>"
+                                "Hex: %{customdata[0]}<br>"
+                                "Alt: %{customdata[1]}<br>"
+                                "<extra></extra>"
+                            ),
+                            customdata=list(zip(
+                                ghost_df["hex"],
+                                ghost_df["alt_baro"].fillna("—"),
+                            )),
+                        ))
+
+                    # Cluster aircraft — standard orange ─────────────────────
+                    if not cluster_df.empty:
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=cluster_df["lat"].tolist(),
+                            lon=cluster_df["lon"].tolist(),
+                            mode="markers",
+                            marker=dict(size=10, color="#FF851B", opacity=0.9),
+                            name="Cluster Aircraft",
+                            hovertemplate=(
+                                "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
+                                "Alt: %{customdata[2]} · Speed: %{customdata[3]} kts<br>"
+                                "<extra></extra>"
+                            ),
+                            customdata=list(zip(
+                                cluster_df["flight"].fillna("—"),
+                                cluster_df["type"].fillna("—"),
+                                cluster_df["alt_baro"].fillna("—"),
+                                cluster_df["gs"].fillna(0).round(0),
+                            )),
+                        ))
+
+                    # Lines from each ghost to nearest cluster centroid ───────
+                    if not ghost_df.empty and not cluster_df.empty:
+                        c_lat_cen = cluster_df["lat"].mean()
+                        c_lon_cen = cluster_df["lon"].mean()
+                        annotation_parts = []
+
+                        for _, grow in ghost_df.iterrows():
+                            g_lat, g_lon = grow["lat"], grow["lon"]
+                            dist = _haversine_nm(g_lat, g_lon, c_lat_cen, c_lon_cen)
+                            fig_det.add_trace(go.Scattermapbox(
+                                lat=[g_lat, c_lat_cen],
+                                lon=[g_lon, c_lon_cen],
+                                mode="lines",
+                                line=dict(color="#B10DC9", width=1),
+                                hoverinfo="skip",
+                                showlegend=False,
+                            ))
+                            annotation_parts.append(
+                                f"Ghost {grow['hex']} — {dist:.1f} nm from nearest formation"
+                            )
+
+                        # Text annotation at cluster centroid
+                        if annotation_parts:
+                            fig_det.add_trace(go.Scattermapbox(
+                                lat=[c_lat_cen],
+                                lon=[c_lon_cen],
+                                mode="text",
+                                text=[annotation_parts[0]],
+                                textfont=dict(size=11, color="#B10DC9"),
+                                hoverinfo="skip",
+                                showlegend=False,
+                            ))
+
+                    fig_det.update_layout(
+                        mapbox=dict(
+                            style="open-street-map",
+                            center=dict(lat=det_lat, lon=det_lon),
+                            zoom=6,
+                        ),
+                        height=500,
+                        margin=dict(l=0, r=0, t=0, b=0),
+                        paper_bgcolor="#0e1117",
+                        legend=dict(bgcolor="rgba(0,0,0,0.6)", font=dict(color="white")),
+                    )
+                    st.plotly_chart(fig_det, use_container_width=True)
+                    st.caption(
+                        "Purple X = ghost/unidentified contact. "
+                        "Orange = cluster aircraft. "
+                        "Purple lines = ghost-to-formation distance."
+                    )
+
+                # ════════════════════════════════════════════════════════════
+                # EW_ASSET_ACTIVITY
+                # ════════════════════════════════════════════════════════════
+                elif atype == "EW_ASSET_ACTIVITY":
+                    fig_det = go.Figure()
+
+                    # EW aircraft as green triangles ─────────────────────────
+                    ew_latest = ew_df[ew_df["hex"].isin(hex_list)].drop_duplicates(
+                        subset=["hex"], keep="first"
+                    ).dropna(subset=["lat", "lon"])
+
+                    if not ew_latest.empty:
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=ew_latest["lat"].tolist(),
+                            lon=ew_latest["lon"].tolist(),
+                            mode="markers",
+                            marker=dict(size=14, color="#00FF41", symbol="triangle", opacity=0.95),
+                            name="EW / ISR Contact",
+                            hovertemplate=(
+                                "<b>%{customdata[0]}</b><br>"
+                                "Role: %{customdata[1]}<br>"
+                                "Confidence: %{customdata[2]}<br>"
+                                "Basis: %{customdata[3]}<br>"
+                                "<extra></extra>"
+                            ),
+                            customdata=list(zip(
+                                ew_latest["flight"].fillna(ew_latest["hex"]),
+                                ew_latest["ew_role"].fillna("—"),
+                                ew_latest["ew_confidence"].fillna("—"),
+                                ew_latest["ew_basis"].fillna("—"),
+                            )),
+                        ))
+
+                    # Nearby non-EW aircraft in standard colors ──────────────
+                    nearby_ac = alert_pos[
+                        (alert_pos["snapshot_time"] == alert_pos["snapshot_time"].max()) &
+                        (~alert_pos["hex"].isin(hex_list))
+                    ].dropna(subset=["lat", "lon"])
+
+                    if not nearby_ac.empty:
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=nearby_ac["lat"].tolist(),
+                            lon=nearby_ac["lon"].tolist(),
+                            mode="markers",
+                            marker=dict(size=8, color="#FF851B", opacity=0.8),
+                            name="Nearby Aircraft",
+                            hovertemplate=(
+                                "<b>%{customdata[0]}</b> (%{customdata[1]})<br>"
+                                "Alt: %{customdata[2]} · Speed: %{customdata[3]} kts<br>"
+                                "<extra></extra>"
+                            ),
+                            customdata=list(zip(
+                                nearby_ac["flight"].fillna("—"),
+                                nearby_ac["type"].fillna("—"),
+                                nearby_ac["alt_baro"].fillna("—"),
+                                nearby_ac["gs"].fillna(0).round(0),
+                            )),
+                        ))
+
+                    # EW track lines ─────────────────────────────────────────
+                    for hex_id in hex_list:
+                        ac_hist = alert_pos[alert_pos["hex"] == hex_id].sort_values("snapshot_time")
+                        if ac_hist.empty or ac_hist["lat"].isna().all():
+                            continue
+                        label = (
+                            ac_hist["flight"].dropna().iloc[-1]
+                            if not ac_hist["flight"].dropna().empty else hex_id
+                        )
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=ac_hist["lat"].tolist(),
+                            lon=ac_hist["lon"].tolist(),
+                            mode="lines",
+                            line=dict(color="#00FF41", width=2),
+                            name=f"EW track: {label}",
+                            hoverinfo="skip",
+                            opacity=0.5,
+                        ))
+
+                    fig_det.update_layout(
+                        mapbox=dict(
+                            style="open-street-map",
+                            center=dict(lat=det_lat, lon=det_lon),
+                            zoom=6,
+                        ),
+                        height=500,
+                        margin=dict(l=0, r=0, t=0, b=0),
+                        paper_bgcolor="#0e1117",
+                        legend=dict(bgcolor="rgba(0,0,0,0.6)", font=dict(color="white")),
+                    )
+                    st.plotly_chart(fig_det, use_container_width=True)
+
+                    # EW contacts detail table ────────────────────────────────
+                    ew_detail = load_ew_for_hexes(tuple(hex_list))
+                    if not ew_detail.empty:
+                        st.markdown("**EW Contact Details**")
+                        _ew_cols = [
+                            c for c in
+                            ["snapshot_time", "flight", "type", "ew_role",
+                             "ew_confidence", "ew_basis", "alt_baro", "gs",
+                             "in_orbit", "near_cluster"]
+                            if c in ew_detail.columns
+                        ]
+                        _ew_disp = ew_detail[_ew_cols].copy()
+                        if "snapshot_time" in _ew_disp.columns:
+                            _ew_disp["snapshot_time"] = _ew_disp["snapshot_time"].str[:16]
+                        st.dataframe(
+                            _ew_disp,
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "snapshot_time":  st.column_config.TextColumn("Time (UTC)",    width="small"),
+                                "flight":         st.column_config.TextColumn("Callsign",      width="small"),
+                                "type":           st.column_config.TextColumn("Type",          width="small"),
+                                "ew_role":        st.column_config.TextColumn("EW Role",       width="large"),
+                                "ew_confidence":  st.column_config.TextColumn("Confidence",    width="small"),
+                                "ew_basis":       st.column_config.TextColumn("Basis",         width="large"),
+                                "alt_baro":       st.column_config.TextColumn("Alt",           width="small"),
+                                "gs":             st.column_config.NumberColumn("Speed (kts)", width="small"),
+                                "in_orbit":       st.column_config.CheckboxColumn("In Orbit",  width="small"),
+                                "near_cluster":   st.column_config.CheckboxColumn("Near Cluster", width="small"),
+                            },
+                        )
+
+                    st.caption(
+                        "Green triangles = EW/ISR contacts. "
+                        "Orange = nearby aircraft. Green lines = EW track history."
+                    )
+
+                # ════════════════════════════════════════════════════════════
+                # ALL OTHER ALERT TYPES — basic track display
+                # ════════════════════════════════════════════════════════════
+                else:
+                    fig_det = go.Figure()
+                    line_color = ALERT_LINE_COLOR.get(atype, "#FF851B")
+
+                    for hex_id in hex_list:
+                        ac_hist = alert_pos[alert_pos["hex"] == hex_id].sort_values("snapshot_time")
+                        if ac_hist.empty or ac_hist["lat"].isna().all():
+                            continue
+
+                        label = (
+                            ac_hist["flight"].dropna().iloc[-1]
+                            if not ac_hist["flight"].dropna().empty else hex_id
+                        )
+                        ac_type = (
+                            ac_hist["type"].dropna().iloc[-1]
+                            if not ac_hist["type"].dropna().empty else "—"
+                        )
+                        sizes = [5] * (len(ac_hist) - 1) + [14]
+
+                        fig_det.add_trace(go.Scattermapbox(
+                            lat=ac_hist["lat"].tolist(),
+                            lon=ac_hist["lon"].tolist(),
+                            mode="lines+markers",
+                            line=dict(color=line_color, width=3),
+                            marker=dict(size=sizes, color=line_color),
+                            name=f"{label} ({ac_type})",
+                            hovertemplate=(
+                                f"<b>{label}</b> ({ac_type})<br>"
+                                "Time: %{customdata[0]}<br>"
+                                "Alt: %{customdata[1]}<br>"
+                                "Speed: %{customdata[2]} kts<br>"
+                                "<extra></extra>"
+                            ),
+                            customdata=list(zip(
+                                ac_hist["snapshot_time"].str[11:16],
+                                ac_hist["alt_baro"].fillna("—"),
+                                ac_hist["gs"].fillna(0).round(0),
+                            )),
+                        ))
+
+                    fig_det.update_layout(
+                        mapbox=dict(
+                            style="open-street-map",
+                            center=dict(lat=det_lat, lon=det_lon),
+                            zoom=6,
+                        ),
+                        height=500,
+                        margin=dict(l=0, r=0, t=0, b=0),
+                        paper_bgcolor="#0e1117",
+                        legend=dict(bgcolor="rgba(0,0,0,0.6)", font=dict(color="white")),
+                    )
+                    st.plotly_chart(fig_det, use_container_width=True)
+                    st.caption(
+                        f"Showing last **{track_window} min** of position history for "
+                        f"**{len(hex_list)}** aircraft in this alert. "
+                        "Larger dot = most recent position. Extend the window in the sidebar to see older tracks."
+                    )
 
 st.markdown("---")
 
