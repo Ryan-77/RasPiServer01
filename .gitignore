@@ -3,3 +3,4 @@ __pycache__/
 venv/
 .DS_Store
 crypto/log.txt
+flight-analysis/monitor.log
