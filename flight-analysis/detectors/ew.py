@@ -4,8 +4,17 @@ EW / ISR Aircraft Classifier — Phase 2 detector.
 Classifies military aircraft as Electronic Warfare, SIGINT, AWACS, or ISR assets
 based on type code, callsign prefix, and behavioral scoring (orbit + altitude + proximity).
 
-Since the feed (api.adsb.lol/v2/mil) is military-only, confidence thresholds are
-intentionally aggressive — any type-matched aircraft is at minimum PROBABLE.
+Type tiers (military-only feed):
+  _CONFIRMED_TYPES  — dedicated EW/ISR platforms; type match alone is sufficient
+  _PROBABLE_TYPES   — ISR-specific King Air variants; PROBABLE by type, CONFIRMED
+                      on orbit/proximity/callsign evidence
+  _POSSIBLE_TYPES   — common transports with rare EW variants (C-130 / EC-130);
+                      POSSIBLE by type alone, requires orbit or proximity for PROBABLE,
+                      requires both (or callsign) for CONFIRMED
+
+Behavioral scoring minimum altitude gate: aircraft below MIN_EW_ALT_FT are not
+scored — EW/ISR missions are not conducted at low altitude and approach/departure
+phases create false orbit and proximity signals.
 """
 
 import math
@@ -41,15 +50,30 @@ EW_TYPE_REGISTRY = {
     "PC12":  "PC-12 (light ISR)",
 }
 
-# Type codes that start as PROBABLE and upgrade to CONFIRMED on behavioral evidence
-_PROBABLE_TYPES = {"C130", "B350", "BE20", "PC12"}
+# Dedicated EW/ISR platforms — type match on military feed is sufficient for CONFIRMED
+_CONFIRMED_TYPES = {
+    "EA18", "EA6B", "RC135", "RC12", "EP3", "E8", "E3CF", "E7", "E2",
+    "U2", "RQ4", "MQ9", "MC12", "EC130",
+}
+
+# ISR-specific King Air variants — PROBABLE by type, upgrade to CONFIRMED on evidence
+_PROBABLE_TYPES = {"B350", "BE20", "PC12"}
+
+# Common transports with rare EW variants — POSSIBLE by type only;
+# requires orbit or proximity for PROBABLE; both (or callsign) for CONFIRMED
+_POSSIBLE_TYPES = {"C130"}
+
+# Minimum altitude for behavioral scoring — EW/ISR missions are not flown at low
+# altitude; aircraft in approach/departure would otherwise accumulate false scores
+MIN_EW_ALT_FT = 5_000
 
 # Callsign prefixes that confirm EW/ISR tasking
 EW_CALLSIGN_PREFIXES = {
     "AWACS", "RIVET", "COBRA", "IRON", "SHADOW", "TACAMO", "RECON", "JANET",
 }
 
-NEAR_CLUSTER_NM = 150.0
+NEAR_CLUSTER_NM = 50.0  # tightened from 150 — 150nm is not "near"; at 50nm the
+                        # aircraft must be in the same airspace as the formation
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -79,9 +103,9 @@ def _nearest_cluster_dist(lat, lon, clusters):
     return min(dists) if dists else None
 
 
-def _is_in_orbit(hex_id, orbits):
-    """Returns True if the aircraft hex appears in any confirmed orbit."""
-    return any(o["hex"] == hex_id for o in orbits)
+def _is_in_orbit(hex_id, orbit_hex_set):
+    """Returns True if the aircraft hex appears in the confirmed orbit set."""
+    return hex_id in orbit_hex_set
 
 
 def _callsign_matches_ew(flight):
@@ -94,7 +118,7 @@ def _callsign_matches_ew(flight):
 
 # ── Behavioral Scoring ────────────────────────────────────────────────────────
 
-def _behavioral_score(ac, orbits, clusters):
+def _behavioral_score(ac, orbit_hex_set, clusters):
     """
     Computes a 0.0–1.0+ behavioral score and a list of human-readable reasons.
 
@@ -102,9 +126,15 @@ def _behavioral_score(ac, orbits, clusters):
       In confirmed orbit      : +0.35
       Alt > 25 000 ft         : +0.20
       Alt > 55 000 ft         : +0.15 additional
-      Speed 250–400 kts       : +0.10
-      Near cluster (≤150 nm)  : +0.20
-      Ghost (no callsign/type) in orbit : +0.10 bonus
+      Speed 250–380 kts       : +0.10
+      Near cluster (≤50 nm)   : +0.20
+
+    Altitude gate: aircraft below MIN_EW_ALT_FT return score 0.0 immediately —
+    EW/ISR is not conducted at low altitude and approach/departure phases produce
+    false orbit and proximity signals.
+
+    Ghost bonus removed: missing identity means less information, not more.
+    Speed range tightened from 250–400 to 250–380 to exclude fast transiting jets.
 
     Returns (score: float, reasons: list[str])
     """
@@ -112,8 +142,6 @@ def _behavioral_score(ac, orbits, clusters):
     reasons = []
 
     hex_id = ac.get("hex", "")
-    flight = (ac.get("flight") or "").strip()
-    ac_type = ac.get("t") or ac.get("type")
     lat = ac.get("lat")
     lon = ac.get("lon")
     gs  = ac.get("gs")
@@ -127,7 +155,11 @@ def _behavioral_score(ac, orbits, clusters):
         except (ValueError, TypeError):
             pass
 
-    in_orbit = _is_in_orbit(hex_id, orbits)
+    # Altitude gate — low-altitude aircraft are not EW/ISR candidates
+    if alt_ft is not None and alt_ft < MIN_EW_ALT_FT:
+        return 0.0, []
+
+    in_orbit = _is_in_orbit(hex_id, orbit_hex_set)
     if in_orbit:
         score += 0.35
         reasons.append("in confirmed orbit")
@@ -139,7 +171,7 @@ def _behavioral_score(ac, orbits, clusters):
             score += 0.15
             reasons.append("very high altitude (>55 000 ft)")
 
-    if gs is not None and 250 <= gs <= 400:
+    if gs is not None and 250 <= gs <= 380:
         score += 0.10
         reasons.append(f"EW-range speed ({gs:.0f} kts)")
 
@@ -147,11 +179,6 @@ def _behavioral_score(ac, orbits, clusters):
     if near_dist is not None and near_dist <= NEAR_CLUSTER_NM:
         score += 0.20
         reasons.append(f"near cluster ({near_dist:.0f} nm)")
-
-    # Ghost bonus: no callsign AND no type AND in orbit
-    if not flight and not ac_type and in_orbit:
-        score += 0.10
-        reasons.append("ghost contact in orbit")
 
     return score, reasons
 
@@ -168,6 +195,9 @@ def detect_ew_aircraft(snapshot, orbits, clusters):
 
     Returns list of contact dicts.
     """
+    # Build a set once for O(1) orbit membership lookups
+    orbit_hex_set = {o["hex"] for o in orbits}
+
     contacts = []
 
     for ac in snapshot:
@@ -180,7 +210,7 @@ def detect_ew_aircraft(snapshot, orbits, clusters):
         alt_baro = str(alt_baro_raw) if alt_baro_raw is not None else None
         gs      = ac.get("gs")
 
-        in_orbit    = _is_in_orbit(hex_id, orbits)
+        in_orbit    = _is_in_orbit(hex_id, orbit_hex_set)
         near_dist   = _nearest_cluster_dist(lat, lon, clusters)
         near_cluster = near_dist is not None and near_dist <= NEAR_CLUSTER_NM
         cs_match    = _callsign_matches_ew(flight)
@@ -195,8 +225,13 @@ def detect_ew_aircraft(snapshot, orbits, clusters):
         if type_upper in EW_TYPE_REGISTRY:
             ew_role = EW_TYPE_REGISTRY[type_upper]
 
-            if type_upper in _PROBABLE_TYPES:
-                # Start as PROBABLE, upgrade to CONFIRMED on evidence
+            if type_upper in _CONFIRMED_TYPES:
+                # Dedicated EW/ISR platform on military-only feed → CONFIRMED
+                ew_confidence = "CONFIRMED"
+                ew_basis = f"Type code {type_upper} confirmed EW/ISR on military feed"
+
+            elif type_upper in _PROBABLE_TYPES:
+                # ISR-specific King Air variants — PROBABLE by type, CONFIRMED on evidence
                 if in_orbit or near_cluster or cs_match:
                     ew_confidence = "CONFIRMED"
                     upgrade_reasons = []
@@ -213,23 +248,54 @@ def detect_ew_aircraft(snapshot, orbits, clusters):
                 else:
                     ew_confidence = "PROBABLE"
                     ew_basis = (
-                        f"Type match ({type_upper}) — probable EW variant "
-                        f"(military-only feed)"
+                        f"Type match ({type_upper}) — ISR variant on military-only feed"
                     )
+
+            elif type_upper in _POSSIBLE_TYPES:
+                # Common transports with rare EW variants (C-130 / EC-130):
+                #   - type alone → POSSIBLE
+                #   - orbit OR proximity → PROBABLE
+                #   - (orbit AND proximity) OR callsign → CONFIRMED
+                if cs_match:
+                    ew_confidence = "CONFIRMED"
+                    ew_basis = f"Type match ({type_upper}) + callsign prefix match"
+                elif in_orbit and near_cluster:
+                    ew_confidence = "CONFIRMED"
+                    ew_basis = (
+                        f"Type match ({type_upper}) + in orbit "
+                        f"+ near cluster ({near_dist:.0f} nm)"
+                    )
+                elif in_orbit or near_cluster:
+                    ew_confidence = "PROBABLE"
+                    evidence = (
+                        "in orbit" if in_orbit
+                        else f"near cluster ({near_dist:.0f} nm)"
+                    )
+                    ew_basis = f"Type match ({type_upper}) + {evidence}"
+                else:
+                    ew_confidence = "POSSIBLE"
+                    ew_basis = (
+                        f"Type match ({type_upper}) — common transport; "
+                        f"EW variant possible on military feed, no corroborating evidence"
+                    )
+
             else:
-                # Exact known EW/ISR type on military-only feed → CONFIRMED
-                ew_confidence = "CONFIRMED"
-                ew_basis = f"Type code {type_upper} confirmed EW/ISR on military feed"
+                # Fallthrough — type is in registry but not in any tier set; shouldn't happen
+                ew_confidence = "POSSIBLE"
+                ew_basis = f"Type code {type_upper} in EW registry (untiered)"
 
         else:
             # ── Behavioral classification (no type match) ─────────────────────
-            b_score, b_reasons = _behavioral_score(ac, orbits, clusters)
+            b_score, b_reasons = _behavioral_score(ac, orbit_hex_set, clusters)
 
             if b_score >= 0.55:
                 ew_confidence = "PROBABLE"
                 ew_role       = "Unknown EW/ISR (behavioral)"
                 ew_basis      = f"Behavioral score {b_score:.2f}: " + ", ".join(b_reasons)
-            elif b_score >= 0.35:
+            elif b_score >= 0.40:
+                # Raised from 0.35 — orbit alone scores 0.35 which no longer qualifies.
+                # A POSSIBLE contact now requires orbit + at least one corroborating
+                # signal (altitude, speed, or proximity) to suppress trainer/circuit noise.
                 ew_confidence = "POSSIBLE"
                 ew_role       = "Unknown EW/ISR (behavioral)"
                 ew_basis      = f"Behavioral score {b_score:.2f}: " + ", ".join(b_reasons)

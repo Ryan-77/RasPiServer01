@@ -18,6 +18,9 @@ def get_connection(path=DB_PATH):
     conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA synchronous=NORMAL")   # fewer fsyncs; WAL keeps durability
+    conn.execute("PRAGMA cache_size=-32000")    # 32 MB page cache
+    conn.execute("PRAGMA temp_store=MEMORY")    # sort/index scratch in RAM
     return conn
 
 
@@ -51,9 +54,10 @@ def init_db(conn):
             acknowledged    INTEGER DEFAULT 0
         );
 
-        CREATE INDEX IF NOT EXISTS idx_positions_time ON aircraft_positions(snapshot_time);
-        CREATE INDEX IF NOT EXISTS idx_positions_hex  ON aircraft_positions(hex);
-        CREATE INDEX IF NOT EXISTS idx_alerts_time    ON alerts(timestamp);
+        CREATE INDEX IF NOT EXISTS idx_positions_time     ON aircraft_positions(snapshot_time);
+        CREATE INDEX IF NOT EXISTS idx_positions_hex      ON aircraft_positions(hex);
+        CREATE INDEX IF NOT EXISTS idx_positions_time_hex ON aircraft_positions(snapshot_time, hex);
+        CREATE INDEX IF NOT EXISTS idx_alerts_time        ON alerts(timestamp);
     """)
     # Initialise QC table (defined in qc.py to avoid circular imports)
     qc_module.init_qc_table(conn)
@@ -99,12 +103,15 @@ def insert_positions(conn, records, snapshot_time, region_fn):
 
 
 def get_recent_positions(conn, minutes=60):
-    """Return rows from the last N minutes as list of dicts."""
+    """Return rows from the last N minutes as list of dicts.
+    Only fetches the columns used by detectors to minimise I/O.
+    Ordering is skipped here — detectors sort their own subsets.
+    """
     cutoff = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
     cur = conn.execute(
-        """SELECT * FROM aircraft_positions
-           WHERE snapshot_time >= datetime(?, '-' || ? || ' minutes')
-           ORDER BY hex, snapshot_time""",
+        """SELECT hex, flight, type, lat, lon, alt_baro, gs, snapshot_time, region
+           FROM aircraft_positions
+           WHERE snapshot_time >= datetime(?, '-' || ? || ' minutes')""",
         (cutoff, minutes),
     )
     return [dict(r) for r in cur.fetchall()]
@@ -133,15 +140,16 @@ def _alert_is_duplicate(conn, alert_type, centroid_lat, centroid_lon, within_min
     if not rows:
         return False
 
-    # No centroid on new alert — dedupe by type alone
+    # No centroid on new alert — dedupe by type alone (e.g. global ghost alerts)
     if centroid_lat is None or centroid_lon is None:
         return True
 
     for row in rows:
         r_lat, r_lon = row[0], row[1]
-        # Existing alert also has no centroid — treat as match
+        # Existing alert has no centroid — cannot spatially compare; skip it.
+        # A located alert must not be suppressed by an unlocated one of the same type.
         if r_lat is None or r_lon is None:
-            return True
+            continue
         dist = _haversine_nm(centroid_lat, centroid_lon, r_lat, r_lon)
         if dist <= DEDUP_RADIUS_NM:
             return True
@@ -179,6 +187,79 @@ def insert_alert(conn, alert):
     )
     conn.commit()
     return True
+
+
+def bulk_insert_alerts(conn, events, within_minutes=DEDUP_MINUTES):
+    """
+    Insert multiple alerts with deduplication in a single DB round-trip.
+    Replaces calling insert_alert() in a loop.
+    Returns the number of newly inserted alerts.
+    """
+    if not events:
+        return 0
+
+    # Load all recent alerts of relevant types in ONE query
+    alert_types = tuple({e["alert_type"] for e in events})
+    placeholders = ",".join("?" * len(alert_types))
+    cur = conn.execute(
+        f"""SELECT alert_type, centroid_lat, centroid_lon FROM alerts
+            WHERE alert_type IN ({placeholders})
+              AND timestamp >= datetime('now', '-' || ? || ' minutes')""",
+        (*alert_types, within_minutes),
+    )
+    # Build in-memory dedup structure: type -> list of (lat, lon)
+    from collections import defaultdict
+    recent_by_type = defaultdict(list)
+    for row in cur.fetchall():
+        recent_by_type[row[0]].append((row[1], row[2]))
+
+    rows_to_insert = []
+    for alert in events:
+        c_lat = alert.get("centroid_lat")
+        c_lon = alert.get("centroid_lon")
+        atype = alert["alert_type"]
+
+        # Check for spatial duplicate in Python
+        is_dup = False
+        for r_lat, r_lon in recent_by_type.get(atype, []):
+            # New alert has no centroid — dedupe by type alone
+            if c_lat is None or c_lon is None:
+                is_dup = True
+                break
+            # Existing entry has no centroid — cannot spatially compare; skip it.
+            # A located alert must not be suppressed by an unlocated one of the same type.
+            if r_lat is None or r_lon is None:
+                continue
+            if _haversine_nm(c_lat, c_lon, r_lat, r_lon) <= DEDUP_RADIUS_NM:
+                is_dup = True
+                break
+        if is_dup:
+            continue
+
+        rows_to_insert.append((
+            alert["alert_type"],
+            alert["severity"],
+            alert.get("region"),
+            alert.get("summary"),
+            alert.get("detail"),
+            ",".join(alert.get("aircraft_hexes", [])),
+            c_lat,
+            c_lon,
+        ))
+        # Update in-memory set so we don't insert near-duplicates within the same batch
+        recent_by_type[atype].append((c_lat, c_lon))
+
+    if rows_to_insert:
+        conn.executemany(
+            """INSERT INTO alerts
+               (timestamp, alert_type, severity, region, summary, detail, aircraft_hexes,
+                centroid_lat, centroid_lon)
+               VALUES (datetime('now'), ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows_to_insert,
+        )
+        conn.commit()
+
+    return len(rows_to_insert)
 
 
 def export_alerts_csv(conn, path=ALERTS_CSV):

@@ -6,7 +6,8 @@ Pure-Python DBSCAN with haversine distance. eps ~30nm.
 import math
 
 EARTH_RADIUS_NM = 3440.065
-EPS_NM = 30
+EPS_NM = 15  # tightened from 30 — 30nm epsilon produced 60nm-diameter clusters that
+             # grouped aircraft at entirely separate bases into the same "formation"
 MIN_SAMPLES = 3
 
 

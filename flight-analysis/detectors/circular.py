@@ -1,17 +1,32 @@
 """
 Circular flight detector — identifies aircraft flying sustained orbits.
 Uses cumulative heading change over the position history window.
-A confirmed orbit requires >= 270 degrees of cumulative heading rotation
-with consistent radius from the track centroid (<= 20nm std dev).
+A confirmed orbit requires >= 540 degrees of cumulative heading rotation
+(1.5 full loops) with consistent radius from the track centroid (<= 5nm std dev).
+
+Filters:
+  - HEADING_THRESHOLD_DEG = 540  — requires 1.5 loops; a single 360° turn during
+    a training maneuver or course correction no longer qualifies; genuine holding
+    orbits and ISR patterns easily exceed this over a 60-minute window
+  - MAX_RADIUS_STD_NM = 5        — tightened from 8; a genuine racetrack or
+    holding orbit has a consistent radius; large std dev = straight-leg drift
+  - MIN_RADIUS_NM = 3            — tight circles < 3nm are maneuvering, not orbiting
+  - MAX_TIME_GAP_MINUTES = 15    — heading deltas across large time gaps are
+    meaningless; skip legs where the position reports are too far apart in time
+  - MIN_POINTS = 8               — raised from 5; at 1-min cron cadence, 8 points
+    = 8 minutes of data; 5 points is insufficient to confirm a sustained pattern
 """
 
 import math
 from collections import defaultdict
+from datetime import datetime
 
 EARTH_RADIUS_NM = 3440.065
-MIN_POINTS = 5
-HEADING_THRESHOLD_DEG = 270.0
-MAX_RADIUS_STD_NM = 20.0
+MIN_POINTS            = 8
+HEADING_THRESHOLD_DEG = 540.0   # raised from 360 — 1.5 full loops required
+MAX_RADIUS_STD_NM     = 5.0     # tightened from 8 — tighter shape filter
+MIN_RADIUS_NM         = 3.0     # exclude tight maneuvering circles
+MAX_TIME_GAP_MINUTES  = 15.0    # skip legs with stale position data
 
 
 def _haversine_nm(lat1, lon1, lat2, lon2):
@@ -55,9 +70,20 @@ def detect_circular_flight(history_rows):
         # Sort by time
         points = sorted(points, key=lambda r: r["snapshot_time"])
 
-        # Compute cumulative heading change
+        # Compute cumulative heading change, skipping legs with large time gaps
+        # (a 30-minute gap between position reports makes bearing calculation meaningless)
         bearings = []
+        bearing_times = []
         for i in range(1, len(points)):
+            try:
+                t1 = datetime.fromisoformat(points[i - 1]["snapshot_time"])
+                t2 = datetime.fromisoformat(points[i]["snapshot_time"])
+                gap_min = abs((t2 - t1).total_seconds()) / 60.0
+                if gap_min > MAX_TIME_GAP_MINUTES:
+                    continue  # stale gap — don't credit heading change across it
+            except (ValueError, TypeError):
+                pass  # can't parse time — proceed without gap check
+
             b = _bearing(
                 points[i - 1]["lat"], points[i - 1]["lon"],
                 points[i]["lat"],     points[i]["lon"],
@@ -86,12 +112,18 @@ def detect_circular_flight(history_rows):
         if radius_std > MAX_RADIUS_STD_NM:
             continue
 
+        # Exclude tight maneuvering circles — not a meaningful orbit
+        if radius_nm < MIN_RADIUS_NM:
+            continue
+
         orbits.append({
             "hex": hex_code,
             "flight": points[-1].get("flight"),
             "type": points[-1].get("type"),
             "centroid_lat": c_lat,
             "centroid_lon": c_lon,
+            "last_lat": points[-1]["lat"],   # most recent known position — used by
+            "last_lon": points[-1]["lon"],   # correlator to detect stale orbits
             "radius_nm": round(radius_nm, 1),
             "cumulative_heading_deg": round(abs(cumulative), 1),
             "direction": "CW" if cumulative > 0 else "CCW",

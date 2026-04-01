@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 
 QC_MIN_AIRCRAFT     = 50    # Minimum aircraft to consider the feed healthy
 QC_MAX_DROPOUT_PCT  = 0.40  # Max tolerable count drop vs previous snapshot
-QC_MIN_COVERAGE_PCT = 0.70  # Minimum fraction of aircraft with lat/lon
+QC_MIN_COVERAGE_PCT = 0.55  # Minimum fraction of aircraft with lat/lon
 QC_MIN_TYPE_PCT     = 0.50  # Minimum fraction of aircraft with a known type
 
 

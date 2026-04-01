@@ -11,11 +11,15 @@ Designed to be called by cron every 5 minutes:
 
 import os
 import sys
+import fcntl
 import requests
 from datetime import datetime, timezone
+from pathlib import Path
 
 import db
 import qc
+
+LOCK_PATH = Path("/tmp/flight_monitor.lock")
 from detectors.ghost import detect_ghosts
 from detectors.cluster import detect_clusters
 from detectors.circular import detect_circular_flight
@@ -115,22 +119,22 @@ def run_cycle(conn):
     # 5. Correlate into events
     events = correlate(ghosts, clusters, orbits, ew_contacts=ew_contacts)
 
-    # 6. Write alerts (deduped)
-    new_alerts = 0
-    for event in events:
-        inserted = db.insert_alert(conn, event)
-        if inserted:
-            new_alerts += 1
-            print(f"  ALERT [{event['severity']}] {event['alert_type']}: {event['summary']}", flush=True)
+    # 6. Write alerts (deduped — single DB round-trip for the whole batch)
+    new_alerts = db.bulk_insert_alerts(conn, events)
 
-    if new_alerts == 0 and events:
+    if new_alerts > 0:
+        print(f"  {new_alerts} new alert(s) inserted this cycle.", flush=True)
+    elif events:
         print(f"  {len(events)} event(s) detected — all duplicates, skipped.", flush=True)
-    elif new_alerts == 0:
+    else:
         print("  No alertable patterns detected.", flush=True)
 
-    # 7. Export CSV
-    db.export_alerts_csv(conn)
-    print(f"  alerts.csv updated ({new_alerts} new alert(s) this cycle)", flush=True)
+    # 7. Export CSV only when there's something new to write
+    if new_alerts > 0:
+        db.export_alerts_csv(conn)
+        print(f"  alerts.csv updated ({new_alerts} new alert(s) this cycle)", flush=True)
+    else:
+        print(f"  alerts.csv unchanged (no new alerts this cycle)", flush=True)
 
 
 def main():
@@ -138,6 +142,15 @@ def main():
     script_dir = os.path.dirname(os.path.abspath(__file__))
     os.chdir(script_dir)
     os.makedirs("data", exist_ok=True)
+
+    # Prevent overlapping runs — if a previous cycle is still running, skip this one
+    lock_file = open(LOCK_PATH, "w")
+    try:
+        fcntl.flock(lock_file, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        print("[SKIP] Another monitor.py is still running — exiting.", flush=True)
+        lock_file.close()
+        sys.exit(0)
 
     conn = db.get_connection()
     db.init_db(conn)
@@ -149,6 +162,8 @@ def main():
         sys.exit(1)
     finally:
         conn.close()
+        fcntl.flock(lock_file, fcntl.LOCK_UN)
+        lock_file.close()
 
 
 if __name__ == "__main__":
