@@ -230,40 +230,145 @@ def setup_db() -> None:
 
 
 # ── PRUNING ───────────────────────────────────────────────────────────────────
+
+SIZE_LIMIT = 10 * 1024 ** 3  # 10 GB in bytes
+
+# Tables eligible for size-based pruning, in priority order (largest/cheapest first).
+# Each: (table, time_column, extra_where or None)
+_SIZE_PRUNE_TABLES = [
+    ("price_history",           "timestamp",   None),
+    ("analysis_signals",        "timestamp",   None),
+    ("ohlc_cache",              "timestamp",   None),
+    ("paper_portfolio_history", "recorded_at", None),
+    ("paper_trading_history",   "recorded_at", None),
+    ("alerts",                  "timestamp",   None),
+    ("paper_trades",            "closed_at",   "status = 'closed'"),
+]
+
+
+def _db_data_size(conn) -> int:
+    """Actual data size in bytes (excludes free pages)."""
+    page_size  = conn.execute("PRAGMA page_size").fetchone()[0]
+    page_count = conn.execute("PRAGMA page_count").fetchone()[0]
+    free_pages = conn.execute("PRAGMA freelist_count").fetchone()[0]
+    return (page_count - free_pages) * page_size
+
+
 def prune_db() -> None:
-    """Delete old rows to keep the DB small on the Pi."""
+    """
+    Two-phase pruner:
+      1. Age-based: always remove expired rows (retention policy).
+      2. Size-based: if DB still exceeds 10 GB, delete oldest rows from the
+         largest tables — only enough to get barely back under the limit.
+      3. VACUUM only if rows were actually deleted.
+    """
+    deleted_counts = {}
+
     with get_db() as conn:
+        # ── Phase 1: age-based retention (always runs) ────────────────────
         r1 = conn.execute(
-            f"DELETE FROM price_history WHERE timestamp < datetime('now', '-{PRICE_HISTORY_KEEP_DAYS} days')"
+            "DELETE FROM price_history WHERE timestamp < datetime('now', ?)",
+            (f"-{PRICE_HISTORY_KEEP_DAYS} days",),
         )
+        deleted_counts["price_history"] = r1.rowcount
+
         r2 = conn.execute(
-            f"DELETE FROM analysis_signals WHERE timestamp < datetime('now', '-{SIGNALS_KEEP_DAYS} days')"
+            "DELETE FROM analysis_signals WHERE timestamp < datetime('now', ?)",
+            (f"-{SIGNALS_KEEP_DAYS} days",),
         )
+        deleted_counts["analysis_signals"] = r2.rowcount
+
         r3 = conn.execute(
-            f"DELETE FROM alerts WHERE timestamp < datetime('now', '-{ALERTS_KEEP_DAYS} days')"
+            "DELETE FROM alerts WHERE timestamp < datetime('now', ?)",
+            (f"-{ALERTS_KEEP_DAYS} days",),
         )
-        # Note: paper_trades are NOT cascade-deleted — closed trade history is retained indefinitely
-        # Only prune closed paper trades older than 180 days to prevent unbounded growth
+        deleted_counts["alerts"] = r3.rowcount
+
         conn.execute(
             "DELETE FROM paper_trades WHERE status='closed' AND closed_at < datetime('now', '-180 days')"
         )
-        # Prune OHLC cache older than 45 days (buffer beyond 30-day lookback)
         cutoff_ts = int((datetime.now(tz=timezone.utc) - timedelta(days=45)).timestamp())
         conn.execute("DELETE FROM ohlc_cache WHERE timestamp < ?", (cutoff_ts,))
-        # Prune stale market cap cache (safety cleanup, >24h old)
         conn.execute("DELETE FROM market_cap_cache WHERE updated_at < datetime('now', '-1 day')")
-        # Prune paper portfolio history older than 1 year (hourly data)
         conn.execute("DELETE FROM paper_portfolio_history WHERE recorded_at < datetime('now', '-365 days')")
-        # Prune paper trading history older than 1 year
         conn.execute("DELETE FROM paper_trading_history WHERE recorded_at < datetime('now', '-365 days')")
         conn.commit()
-    # VACUUM must run outside any transaction
-    raw = sqlite3.connect(DB_PATH)
-    raw.isolation_level = None
-    raw.execute("VACUUM")
-    raw.close()
+
+        total_age_deleted = sum(deleted_counts.values())
+
+        # ── Phase 2: size-based pruning (only if over limit) ──────────────
+        data_size = _db_data_size(conn)
+        excess = data_size - SIZE_LIMIT
+        total_size_deleted = 0
+
+        if excess > 0:
+            log.info(f"[PRUNE] DB data at {data_size / (1024**3):.2f} GB — need to free ~{excess / (1024**2):.0f} MB")
+
+            total_rows = sum(
+                conn.execute(f"SELECT COUNT(*) FROM {t}").fetchone()[0]
+                for t, _, _ in _SIZE_PRUNE_TABLES
+            )
+
+            for table, time_col, extra_where in _SIZE_PRUNE_TABLES:
+                if excess <= 0:
+                    break
+
+                row_count = conn.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+                if row_count == 0:
+                    continue
+
+                est_bytes_per_row = (data_size / total_rows) if total_rows > 0 else 0
+                if est_bytes_per_row <= 0:
+                    continue
+
+                rows_to_delete = int((excess * 1.05) / est_bytes_per_row)
+                rows_to_delete = min(rows_to_delete, row_count - 1)
+                if rows_to_delete <= 0:
+                    continue
+
+                # Find the cutoff: the Nth oldest row's timestamp
+                where_clause = f"WHERE {extra_where}" if extra_where else ""
+                order_col = time_col
+                cutoff_row = conn.execute(
+                    f"SELECT {time_col} FROM {table} {where_clause} ORDER BY {order_col} ASC LIMIT 1 OFFSET ?",
+                    (rows_to_delete,),
+                ).fetchone()
+
+                if cutoff_row is None:
+                    continue
+
+                cutoff_time = cutoff_row[0]
+                where_parts = [f"{time_col} < ?"]
+                params = [cutoff_time]
+                if extra_where:
+                    where_parts.append(extra_where)
+
+                cur = conn.execute(
+                    f"DELETE FROM {table} WHERE {' AND '.join(where_parts)}",
+                    params,
+                )
+                deleted = cur.rowcount
+                conn.commit()
+
+                freed_est = deleted * est_bytes_per_row
+                excess -= freed_est
+                total_size_deleted += deleted
+                log.info(f"[PRUNE] {table}: deleted {deleted:,} oldest rows (~{freed_est / (1024**2):.0f} MB est)")
+
+    # ── Phase 3: VACUUM only if we deleted rows ──────────────────────────
+    any_deleted = total_age_deleted > 0 or total_size_deleted > 0
+    if any_deleted:
+        raw = sqlite3.connect(DB_PATH)
+        raw.isolation_level = None
+        raw.execute("VACUUM")
+        raw.close()
+
     log.info(
-        f"[PRUNE] Removed: price_history={r1.rowcount}, signals={r2.rowcount}, alerts={r3.rowcount} rows. VACUUM done."
+        f"[PRUNE] Age-based: price_history={deleted_counts.get('price_history', 0)}, "
+        f"signals={deleted_counts.get('analysis_signals', 0)}, "
+        f"alerts={deleted_counts.get('alerts', 0)}. "
+        f"Size-based: {total_size_deleted:,} extra rows. "
+        f"VACUUM: {'yes' if any_deleted else 'skipped (nothing deleted)'}."
     )
 
 

@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crypto Consulting | CryptoLens</title>
+  <meta name="description" content="Book a 1:1 crypto consulting session. Portfolio review, trading strategy workshops, and monthly market alert subscriptions from an independent crypto analyst.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Ticker -->
+  <div class="ticker-wrap">
+    <div class="ticker-track" id="tickerTrack">
+      <span class="ticker-loading">Loading live market data…</span>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container navbar-inner">
+      <a href="index.html" class="navbar-brand">
+        <span class="brand-icon">◈</span>
+        <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="news.html">News</a></li>
+        <li><a href="coin-explorer.html">Coin Explorer</a></li>
+        <li><a href="reports.html">Reports</a></li>
+        <li><a href="consulting.html">Consulting</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="contact.html" class="btn btn-primary btn-sm">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- Page Header -->
+    <div class="page-hero">
+      <div class="container">
+        <span class="badge badge-purple" style="margin-bottom:var(--space-3);display:inline-block;">1:1 Sessions</span>
+        <h1>Expert Crypto Consulting</h1>
+        <p>Book a 1:1 session with a crypto market analyst. Get personalized guidance — not generic advice from an algorithm.</p>
+        <div class="cred-strip">
+          <span class="cred-item"><span class="cred-dot"></span>5+ Years Experience</span>
+          <span class="cred-item"><span class="cred-dot"></span>Independent Analyst</span>
+          <span class="cred-item"><span class="cred-dot"></span>No Conflicts of Interest</span>
+          <span class="cred-item"><span class="cred-dot"></span>CFA Candidate L2</span>
+          <span class="cred-item"><span class="cred-dot"></span>Former Exchange Risk Analyst</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Services -->
+    <section class="section">
+      <div class="container">
+
+        <div class="section-header">
+          <span class="eyebrow">Choose Your Session</span>
+          <h2>Consulting Packages</h2>
+          <p>All sessions are held via video call. Slots are limited — book in advance to secure your preferred time.</p>
+        </div>
+
+        <!-- Two main services -->
+        <div class="grid-2" style="align-items:start;">
+
+          <!-- Service 1 -->
+          <div class="service-card card-accent-cyan">
+            <div class="service-icon">📊</div>
+            <h3>Portfolio Review Session</h3>
+            <div class="service-meta">
+              <span class="service-meta-item">⏱ 60 Minutes</span>
+              <span class="service-meta-item">📹 Video Call</span>
+              <span class="service-meta-item">📝 Written Summary</span>
+            </div>
+            <p>A comprehensive look at your current crypto holdings. We'll assess your allocation strategy, identify overexposure risks, and discuss rebalancing options based on current market conditions — no generic advice, only analysis specific to your portfolio.</p>
+            <ul class="service-includes">
+              <li>Pre-session questionnaire emailed after booking</li>
+              <li>Live 1:1 video call (Google Meet or Zoom — your choice)</li>
+              <li>Screen-share portfolio walkthrough &amp; risk assessment</li>
+              <li>Written summary + rebalancing recommendations (within 24h)</li>
+              <li>1 follow-up email Q&amp;A included (valid for 14 days)</li>
+            </ul>
+            <div class="service-price-row">
+              <span class="service-price">$49</span>
+              <span class="service-per">/ session</span>
+            </div>
+            <a href="#booking-form" class="btn btn-cyan btn-full"
+               data-scroll-to-form data-service="portfolio-review">
+              Book a Portfolio Review — $49
+            </a>
+            <p class="report-note">Full refund if cancelled 24+ hours in advance</p>
+          </div>
+
+          <!-- Service 2 -->
+          <div class="service-card card-accent-top" style="position:relative;">
+            <span class="badge badge-purple" style="position:absolute;top:var(--space-5);right:var(--space-5);">Best Value</span>
+            <div class="service-icon">📈</div>
+            <h3>Trading Strategy Workshop</h3>
+            <div class="service-meta">
+              <span class="service-meta-item">⏱ 90 Minutes</span>
+              <span class="service-meta-item">📹 Recorded Session</span>
+              <span class="service-meta-item">📄 Custom Plan</span>
+            </div>
+            <p>A deep-dive session to build or refine your crypto trading framework from the ground up. We cover entry/exit strategies, position sizing, macro timing, and risk management — all tailored to your specific goals and experience level.</p>
+            <ul class="service-includes">
+              <li>Pre-session strategy questionnaire to focus the session</li>
+              <li>Live 1:1 video call — session is recorded for your review</li>
+              <li>Market cycle positioning walkthrough</li>
+              <li>Custom trading framework document (delivered within 48h)</li>
+              <li>Position sizing calculator tailored to your risk tolerance</li>
+              <li>2 follow-up email Q&amp;As included (valid for 30 days)</li>
+            </ul>
+            <div class="service-price-row">
+              <span class="service-price">$79</span>
+              <span class="service-per">/ session</span>
+            </div>
+            <a href="#booking-form" class="btn btn-primary btn-full"
+               data-scroll-to-form data-service="strategy-workshop">
+              Book a Strategy Workshop — $79
+            </a>
+            <p class="report-note">Session recording delivered via Google Drive link</p>
+          </div>
+
+        </div>
+
+        <!-- Alert Subscription -->
+        <div class="service-alert-card">
+          <div>
+            <span class="badge badge-cyan" style="margin-bottom:var(--space-3);">Ongoing</span>
+            <h3>Monthly Market Alert Subscription</h3>
+            <p>Stay informed without spending hours on research. Three market alert emails per week — covering key signals, macro developments, notable on-chain events, and watchlist updates.</p>
+            <div class="alert-features">
+              <span>📨 3 emails/week (Mon · Wed · Fri)</span>
+              <span>📈 BTC cycle status update</span>
+              <span>🔔 Watchlist coin alerts</span>
+              <span>📄 Early report access</span>
+              <span>❌ Cancel anytime</span>
+            </div>
+            <a href="mailto:hello@cryptolens.io?subject=Alert Subscription Request&body=I'd like to subscribe to Monthly Market Alerts ($19/mo). My name is: %0AMy PayPal/Venmo for monthly billing: %0A"
+               class="btn btn-cyan">Subscribe to Alerts — $19/mo</a>
+          </div>
+          <div class="alert-price-block">
+            <span class="alert-price">$19</span>
+            <span class="alert-period">per month</span>
+            <div class="divider" style="margin:var(--space-3) 0;"></div>
+            <p style="font-size:var(--font-xs);color:var(--text-muted);">Cancel anytime<br>No minimum term<br>Billed monthly</p>
+          </div>
+        </div>
+
+        <!-- Trust Strip -->
+        <div class="consult-trust">
+          <div class="consult-trust-item">
+            <h5>🚫 No Conflicts of Interest</h5>
+            <p>We accept no coin sponsorships, referral commissions, or paid promotions. Our analysis is entirely independent — what's good for your portfolio, not our wallet.</p>
+          </div>
+          <div class="consult-trust-item">
+            <h5>🔒 100% Confidential</h5>
+            <p>All portfolio details shared in sessions are strictly confidential. We will never reference, publish, or disclose your holdings or strategies to anyone.</p>
+          </div>
+          <div class="consult-trust-item">
+            <h5>✅ Satisfaction Backed</h5>
+            <p>Full refund for cancellations made 24+ hours before your session. No questions asked. <a href="refund-policy.html">See full cancellation policy.</a></p>
+          </div>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- Booking Form -->
+    <section class="section section-alt" id="booking-form">
+      <div class="container">
+        <div style="max-width:640px;margin:0 auto;">
+          <div class="section-header" style="text-align:left;margin-bottom:var(--space-8);">
+            <span class="eyebrow">Book Now</span>
+            <h2>Request a Session</h2>
+            <p>Fill out the form below. We'll confirm your booking within 24 business hours and send payment instructions.</p>
+          </div>
+
+          <div class="form-section">
+            <form id="bookingForm" novalidate>
+              <div class="form-row">
+                <div class="form-group">
+                  <label for="bkName">Full Name *</label>
+                  <input type="text" id="bkName" name="name" required placeholder="Jane Smith" autocomplete="name">
+                </div>
+                <div class="form-group">
+                  <label for="bkEmail">Email Address *</label>
+                  <input type="email" id="bkEmail" name="email" required placeholder="jane@example.com" autocomplete="email">
+                </div>
+              </div>
+              <div class="form-group">
+                <label for="bkService">Service *</label>
+                <select id="bkService" name="service" required>
+                  <option value="">Select a service…</option>
+                  <option value="portfolio-review">Portfolio Review Session — $49</option>
+                  <option value="strategy-workshop">Trading Strategy Workshop — $79</option>
+                  <option value="alerts">Monthly Market Alerts — $19/mo</option>
+                </select>
+              </div>
+              <div class="form-group">
+                <label for="bkDate">Preferred Date &amp; Time <span style="color:var(--text-muted);font-weight:400;">(optional)</span></label>
+                <input type="text" id="bkDate" name="preferred_date" placeholder="e.g. Any weekday after 3pm EST, or Saturdays">
+              </div>
+              <div class="form-group">
+                <label for="bkNotes">Your Portfolio &amp; Goals <span style="color:var(--text-muted);font-weight:400;">(optional — helps us prep)</span></label>
+                <textarea id="bkNotes" name="notes" rows="4" placeholder="e.g. I hold mostly BTC and ETH, looking to diversify into DeFi. Currently unsure about position sizing…"></textarea>
+              </div>
+              <button type="submit" class="btn btn-primary btn-lg btn-full">Submit Booking Request</button>
+              <p class="form-note">
+                By submitting this form, you agree to our <a href="refund-policy.html">cancellation policy</a>.
+                We'll reply within 24 business hours with a calendar invite and payment instructions.
+                No charge is collected until you confirm the session.
+              </p>
+            </form>
+            <div class="form-success" id="bookingSuccess">
+              ✅ Your booking request was sent! Check your email — we'll reply within 24 business hours with next steps.
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="navbar-brand" style="margin-bottom:var(--space-3);display:inline-flex;">
+            <span class="brand-icon">◈</span>
+            <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+          </a>
+          <p>Independent crypto market analysis, news aggregation, and educational consulting. Not financial advice.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter">𝕏</a>
+            <a href="#" aria-label="LinkedIn">in</a>
+            <a href="#" aria-label="GitHub">⌥</a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h5>Explore</h5>
+          <ul>
+            <li><a href="news.html">Crypto News</a></li>
+            <li><a href="coin-explorer.html">Coin Explorer</a></li>
+            <li><a href="reports.html">Market Reports</a></li>
+            <li><a href="consulting.html">Consulting</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Company</h5>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="faq.html">FAQ</a></li>
+            <li><a href="refund-policy.html">Refund Policy</a></li>
+            <li><a href="contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Contact</h5>
+          <ul>
+            <li class="contact-item">📧 <a href="mailto:hello@cryptolens.io">hello@cryptolens.io</a></li>
+            <li class="contact-item">🐦 <a href="#">@CryptoLensIO</a></li>
+            <li class="contact-item">📍 Remote — Global</li>
+          </ul>
+          <p style="margin-top:var(--space-4);font-size:var(--font-xs);color:var(--text-muted);">Response time: within 48 business hours</p>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2025 CryptoLens. All rights reserved. Not financial advice. Data provided by CoinGecko.</p>
+        <div class="footer-links">
+          <a href="refund-policy.html">Refund Policy</a>
+          <a href="faq.html">FAQ</a>
+          <a href="contact.html">Contact</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/ticker.js"></script>
+  <script src="js/contact.js"></script>
+</body>
+</html>

@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Contact | CryptoLens</title>
+  <meta name="description" content="Contact CryptoLens for report purchases, consulting bookings, refund requests, or general questions. We reply within 48 business hours.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Ticker -->
+  <div class="ticker-wrap">
+    <div class="ticker-track" id="tickerTrack">
+      <span class="ticker-loading">Loading live market data…</span>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container navbar-inner">
+      <a href="index.html" class="navbar-brand">
+        <span class="brand-icon">◈</span>
+        <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="news.html">News</a></li>
+        <li><a href="coin-explorer.html">Coin Explorer</a></li>
+        <li><a href="reports.html">Reports</a></li>
+        <li><a href="consulting.html">Consulting</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="contact.html" class="btn btn-primary btn-sm">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- Page Header -->
+    <div class="page-hero">
+      <div class="container">
+        <h1>Get in Touch</h1>
+        <p>Questions about a report, booking a session, requesting a refund, or anything else — we're here. Every message gets a real reply from a real person.</p>
+      </div>
+    </div>
+
+    <section class="section">
+      <div class="container">
+        <div class="contact-grid">
+
+          <!-- Contact Form -->
+          <div>
+            <h3 style="margin-bottom:var(--space-2);">Send Us a Message</h3>
+            <p style="margin-bottom:var(--space-6);">We typically respond within <strong style="color:var(--text-primary);">48 business hours</strong> (Mon–Fri). For urgent matters, mention "URGENT" in the subject.</p>
+
+            <div class="form-section">
+              <form id="contactForm" novalidate>
+                <div class="form-row">
+                  <div class="form-group">
+                    <label for="ctName">Full Name *</label>
+                    <input type="text" id="ctName" name="name" required placeholder="Your name" autocomplete="name">
+                  </div>
+                  <div class="form-group">
+                    <label for="ctEmail">Email Address *</label>
+                    <input type="email" id="ctEmail" name="email" required placeholder="you@example.com" autocomplete="email">
+                  </div>
+                </div>
+                <div class="form-group">
+                  <label for="ctSubject">Subject *</label>
+                  <select id="ctSubject" name="subject" required>
+                    <option value="">Select a topic…</option>
+                    <option value="Report Purchase">Report Purchase / Delivery</option>
+                    <option value="Consulting Booking">Consulting Booking</option>
+                    <option value="Alert Subscription">Alert Subscription</option>
+                    <option value="Refund Request">Refund Request</option>
+                    <option value="General Question">General Question</option>
+                    <option value="Press / Media">Press &amp; Media</option>
+                    <option value="Partnership">Partnership Inquiry</option>
+                    <option value="Technical Issue">Technical Issue (site)</option>
+                  </select>
+                </div>
+                <div class="form-group">
+                  <label for="ctMessage">Message *</label>
+                  <textarea id="ctMessage" name="message" rows="6" required placeholder="How can we help? The more detail you provide, the faster we can assist."></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary btn-lg btn-full">Send Message</button>
+                <p class="form-note">Your message opens your default email client with a pre-filled email to hello@cryptolens.io. No data is collected by this website directly.</p>
+              </form>
+              <div class="form-success" id="contactSuccess">
+                ✅ Your email client should have opened with your message ready to send. If it didn't, email us directly at <a href="mailto:hello@cryptolens.io">hello@cryptolens.io</a>.
+              </div>
+            </div>
+          </div>
+
+          <!-- Contact Info -->
+          <div>
+            <h3 style="margin-bottom:var(--space-6);">Contact Information</h3>
+            <div class="contact-info-cards">
+
+              <div class="contact-info-card">
+                <h5>📧 Email (General)</h5>
+                <a href="mailto:hello@cryptolens.io">hello@cryptolens.io</a>
+                <p style="margin-top:var(--space-2);">For: report purchases, general questions, consulting inquiries, and refund requests.</p>
+              </div>
+
+              <div class="contact-info-card">
+                <h5>📧 Press &amp; Media</h5>
+                <a href="mailto:press@cryptolens.io">press@cryptolens.io</a>
+                <p style="margin-top:var(--space-2);">For: interview requests, report citations, research collaborations, and partnership inquiries.</p>
+              </div>
+
+              <div class="contact-info-card">
+                <h5>🐦 Social Media</h5>
+                <a href="#">𝕏 @CryptoLensIO</a><br>
+                <a href="#" style="display:inline-block;margin-top:var(--space-1);">LinkedIn /in/cryptolens</a>
+                <p style="margin-top:var(--space-2);">Follow for market alerts, trending news, and report announcements.</p>
+              </div>
+
+              <div class="contact-info-card">
+                <h5>🕐 Response Hours</h5>
+                <p><strong style="color:var(--text-primary);">Mon–Fri:</strong> 9am – 6pm EST</p>
+                <p><strong style="color:var(--text-primary);">Weekends:</strong> by appointment (consulting only)</p>
+                <p style="margin-top:var(--space-2);">Average email response time: <strong style="color:var(--green);">under 24 hours</strong> on weekdays.</p>
+              </div>
+
+            </div>
+
+            <!-- Quick Links -->
+            <div style="margin-top:var(--space-6);padding:var(--space-5);background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-lg);">
+              <h5 style="margin-bottom:var(--space-3);">Quick Links</h5>
+              <div style="display:flex;flex-direction:column;gap:var(--space-2);">
+                <a href="refund-policy.html" style="font-size:var(--font-sm);color:var(--text-secondary);">→ Refund &amp; Cancellation Policy</a>
+                <a href="faq.html"           style="font-size:var(--font-sm);color:var(--text-secondary);">→ Frequently Asked Questions</a>
+                <a href="reports.html"       style="font-size:var(--font-sm);color:var(--text-secondary);">→ View Market Reports</a>
+                <a href="consulting.html"    style="font-size:var(--font-sm);color:var(--text-secondary);">→ Book a Consulting Session</a>
+              </div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- FAQ Teaser -->
+        <div class="faq-teaser">
+          <h3 style="margin-bottom:var(--space-3);">Looking for a quick answer?</h3>
+          <p>Our FAQ page covers the most common questions about reports, sessions, refunds, and how the site works.</p>
+          <a href="faq.html" class="btn btn-outline">Visit the FAQ →</a>
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="navbar-brand" style="margin-bottom:var(--space-3);display:inline-flex;">
+            <span class="brand-icon">◈</span>
+            <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+          </a>
+          <p>Independent crypto market analysis, news aggregation, and educational consulting. Not financial advice.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter">𝕏</a>
+            <a href="#" aria-label="LinkedIn">in</a>
+            <a href="#" aria-label="GitHub">⌥</a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h5>Explore</h5>
+          <ul>
+            <li><a href="news.html">Crypto News</a></li>
+            <li><a href="coin-explorer.html">Coin Explorer</a></li>
+            <li><a href="reports.html">Market Reports</a></li>
+            <li><a href="consulting.html">Consulting</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Company</h5>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="faq.html">FAQ</a></li>
+            <li><a href="refund-policy.html">Refund Policy</a></li>
+            <li><a href="contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Contact</h5>
+          <ul>
+            <li class="contact-item">📧 <a href="mailto:hello@cryptolens.io">hello@cryptolens.io</a></li>
+            <li class="contact-item">🐦 <a href="#">@CryptoLensIO</a></li>
+            <li class="contact-item">📍 Remote — Global</li>
+          </ul>
+          <p style="margin-top:var(--space-4);font-size:var(--font-xs);color:var(--text-muted);">Response time: within 48 business hours</p>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2025 CryptoLens. All rights reserved. Not financial advice. Data provided by CoinGecko.</p>
+        <div class="footer-links">
+          <a href="refund-policy.html">Refund Policy</a>
+          <a href="faq.html">FAQ</a>
+          <a href="contact.html">Contact</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/ticker.js"></script>
+  <script src="js/contact.js"></script>
+</body>
+</html>

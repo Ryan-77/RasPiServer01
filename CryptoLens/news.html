@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Crypto News | CryptoLens</title>
+  <meta name="description" content="Stay current with the latest cryptocurrency news aggregated in real time from top crypto media outlets via CoinGecko News.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Ticker -->
+  <div class="ticker-wrap">
+    <div class="ticker-track" id="tickerTrack">
+      <span class="ticker-loading">Loading live market data…</span>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container navbar-inner">
+      <a href="index.html" class="navbar-brand">
+        <span class="brand-icon">◈</span>
+        <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="news.html">News</a></li>
+        <li><a href="coin-explorer.html">Coin Explorer</a></li>
+        <li><a href="reports.html">Reports</a></li>
+        <li><a href="consulting.html">Consulting</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="contact.html" class="btn btn-primary btn-sm">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- Page Header -->
+    <div class="page-hero">
+      <div class="container">
+        <span class="badge badge-cyan" style="margin-bottom:var(--space-3);display:inline-block;">Live Feed</span>
+        <h1>Crypto News</h1>
+        <p>The latest headlines from across the crypto industry — aggregated in real time via CoinGecko News.</p>
+      </div>
+    </div>
+
+    <!-- News Feed -->
+    <section class="section">
+      <div class="container">
+
+        <!-- Controls: search + filters -->
+        <div class="news-controls">
+          <input
+            type="search"
+            id="newsSearch"
+            class="news-search"
+            placeholder="Search headlines…"
+            aria-label="Search news articles"
+          >
+          <div class="filter-tabs" role="tablist">
+            <button class="filter-tab active" data-filter="all"        role="tab">All</button>
+            <button class="filter-tab"        data-filter="bitcoin"    role="tab">Bitcoin</button>
+            <button class="filter-tab"        data-filter="ethereum"   role="tab">Ethereum</button>
+            <button class="filter-tab"        data-filter="defi"       role="tab">DeFi</button>
+            <button class="filter-tab"        data-filter="layer2"     role="tab">Layer 2</button>
+            <button class="filter-tab"        data-filter="regulation" role="tab">Regulation</button>
+            <button class="filter-tab"        data-filter="nft"        role="tab">NFT</button>
+          </div>
+        </div>
+
+        <!-- News grid -->
+        <div class="news-grid" id="newsGrid">
+          <!-- Populated by news.js -->
+        </div>
+
+        <!-- Attribution -->
+        <div style="text-align:center;margin-top:var(--space-10);padding:var(--space-4);border:1px solid var(--border);border-radius:var(--radius-lg);background:var(--bg-surface);">
+          <p style="font-size:var(--font-sm);">
+            News aggregated via <a href="https://coingecko.com/en/news" target="_blank" rel="noopener noreferrer">CoinGecko News</a>.
+            CryptoLens does not author or endorse any articles. Click any headline to read the original source.
+          </p>
+        </div>
+
+      </div>
+    </section>
+
+    <!-- CTA Strip -->
+    <section class="section-sm section-alt">
+      <div class="container" style="text-align:center;">
+        <h3 style="margin-bottom:var(--space-3);">Want deeper analysis beyond the headlines?</h3>
+        <p style="margin-bottom:var(--space-6);">Our monthly market reports go further — cycle analysis, on-chain data, and curated opportunities.</p>
+        <div style="display:flex;gap:var(--space-4);justify-content:center;flex-wrap:wrap;">
+          <a href="reports.html"    class="btn btn-primary">View Market Reports</a>
+          <a href="consulting.html" class="btn btn-outline">Book a Consult</a>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="navbar-brand" style="margin-bottom:var(--space-3);display:inline-flex;">
+            <span class="brand-icon">◈</span>
+            <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+          </a>
+          <p>Independent crypto market analysis, news aggregation, and educational consulting. Not financial advice.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter">𝕏</a>
+            <a href="#" aria-label="LinkedIn">in</a>
+            <a href="#" aria-label="GitHub">⌥</a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h5>Explore</h5>
+          <ul>
+            <li><a href="news.html">Crypto News</a></li>
+            <li><a href="coin-explorer.html">Coin Explorer</a></li>
+            <li><a href="reports.html">Market Reports</a></li>
+            <li><a href="consulting.html">Consulting</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Company</h5>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="faq.html">FAQ</a></li>
+            <li><a href="refund-policy.html">Refund Policy</a></li>
+            <li><a href="contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Contact</h5>
+          <ul>
+            <li class="contact-item">📧 <a href="mailto:hello@cryptolens.io">hello@cryptolens.io</a></li>
+            <li class="contact-item">🐦 <a href="#">@CryptoLensIO</a></li>
+            <li class="contact-item">📍 Remote — Global</li>
+          </ul>
+          <p style="margin-top:var(--space-4);font-size:var(--font-xs);color:var(--text-muted);">Response time: within 48 business hours</p>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2025 CryptoLens. All rights reserved. Not financial advice. Data provided by CoinGecko.</p>
+        <div class="footer-links">
+          <a href="refund-policy.html">Refund Policy</a>
+          <a href="faq.html">FAQ</a>
+          <a href="contact.html">Contact</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/ticker.js"></script>
+  <script src="js/news.js"></script>
+  <script src="js/contact.js"></script>
+</body>
+</html>

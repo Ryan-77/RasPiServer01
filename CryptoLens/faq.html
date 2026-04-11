@@ -1,0 +1,288 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FAQ | CryptoLens</title>
+  <meta name="description" content="Frequently asked questions about CryptoLens — reports, consulting sessions, subscriptions, data sources, and general crypto concepts explained.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Ticker -->
+  <div class="ticker-wrap">
+    <div class="ticker-track" id="tickerTrack">
+      <span class="ticker-loading">Loading live market data…</span>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container navbar-inner">
+      <a href="index.html" class="navbar-brand">
+        <span class="brand-icon">◈</span>
+        <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="news.html">News</a></li>
+        <li><a href="coin-explorer.html">Coin Explorer</a></li>
+        <li><a href="reports.html">Reports</a></li>
+        <li><a href="consulting.html">Consulting</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="contact.html" class="btn btn-primary btn-sm">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- Page Header -->
+    <div class="page-hero">
+      <div class="container">
+        <h1>Frequently Asked Questions</h1>
+        <p>Everything you need to know about CryptoLens reports, consulting, subscriptions, and our data. Can't find your answer? <a href="contact.html">Email us</a> — we reply within 48 hours.</p>
+      </div>
+    </div>
+
+    <!-- FAQ Content -->
+    <section class="section">
+      <div class="container">
+        <div class="faq-section">
+
+          <!-- Section A: Reports & Site -->
+          <div class="faq-group">
+            <div class="faq-group-title">Reports &amp; Site</div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                How are reports delivered after purchase?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>After your payment is confirmed, your PDF report is emailed directly to the address you provided in your order message — typically within 1 hour during business hours (Mon–Fri, 9am–6pm EST). You'll receive a direct download link that stays active for 7 days. If you need a re-send after that window, just email us and we'll resend it at no charge.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                Are reports updated over time?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>Yes — all market reports are refreshed monthly with updated data, charts, and analysis. If you've previously purchased a report, you can re-purchase the updated edition at <strong>50% off</strong>. Simply email <a href="mailto:hello@cryptolens.io">hello@cryptolens.io</a> from your original order email address to claim the discount.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                What file format are the reports in? Can I read them on my phone?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>All reports are delivered as high-quality PDFs. PDFs are readable on any device — iPhone, Android, iPad, Mac, PC, or e-reader — without any special software. On most devices, tapping a PDF link will open it directly in your browser or the default Files app. You can also save it to your device for offline reading.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                Can I share a report with my friends or colleagues?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>Reports are licensed for single-user personal use only. Please do not forward, post, or reproduce them publicly. If you're purchasing for a team, investment group, or fund and need a multi-seat license, contact us at <a href="mailto:hello@cryptolens.io">hello@cryptolens.io</a> for group pricing.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                Who writes the reports? Are they based on opinion or data?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>All reports are authored by the CryptoLens analyst team. Every claim is backed by a cited data source — primarily CoinGecko for price and market data, and Glassnode/Dune Analytics for on-chain metrics. Our methodology is disclosed in the introduction of each report. We aim for the kind of analysis you'd read in a professional research note, not a Twitter thread.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                Why is the news section not loading or showing old articles?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>Our news feed is fetched in real time from the CoinGecko API. If it's empty or not loading, this is usually caused by a temporary API outage on CoinGecko's end or a rate-limit timeout. Try refreshing the page in a minute or two. If the issue persists, you can check CoinGecko's news directly at <a href="https://coingecko.com/en/news" target="_blank" rel="noopener noreferrer">coingecko.com/en/news</a>.</p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Section B: Consulting & General -->
+          <div class="faq-group">
+            <div class="faq-group-title">Consulting &amp; General</div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                How do I book a consulting session?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>Use the booking form on the <a href="consulting.html">Consulting page</a>. Fill in your name, email, the service you want, a preferred time if you have one, and any notes about your portfolio or goals. Submit the form — your email client will open with a pre-filled message. Send it, and we'll reply within 24 business hours with a calendar invite and payment instructions. No payment is taken until you confirm.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                What platform are sessions held on?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>Sessions are held via <strong>Google Meet</strong> or <strong>Zoom</strong> — whichever you prefer. You don't need an account to join via a link. The meeting link is included in your booking confirmation email. Strategy Workshop sessions are recorded via Zoom (with your permission) and the recording is delivered to you via Google Drive link within 24 hours.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                Can I reschedule a session after booking?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>Yes. Reschedules are allowed with at least <strong>24 hours' notice</strong> at no charge. To reschedule, simply reply to your booking confirmation email with your new preferred date and time. If you need to reschedule with less than 24 hours' notice, we'll do our best to accommodate but cannot guarantee an immediate opening. See our <a href="refund-policy.html">Refund &amp; Cancellation Policy</a> for full details.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                Is my portfolio information kept confidential?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>Absolutely. Any portfolio details, holdings, or financial information you share — whether in the booking form, pre-session questionnaire, or during the call itself — are strictly confidential. We never share, reference, publish, or use this information in any materials. Your data is yours.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                Do you give specific buy/sell recommendations?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p>No — and that's intentional. We provide educational analysis: risk frameworks, allocation strategies, market cycle context, and historical precedents. We do not issue specific buy/sell orders, guarantee returns, or tell you what to do with your money. All investment decisions are yours to make. CryptoLens is not a registered investment advisor.</p>
+                </div>
+              </div>
+            </div>
+
+            <div class="faq-item">
+              <button class="faq-question" aria-expanded="false">
+                What is CoinGecko and why does CryptoLens use it?
+                <span class="faq-icon">+</span>
+              </button>
+              <div class="faq-answer">
+                <div class="faq-answer-inner">
+                  <p><a href="https://coingecko.com" target="_blank" rel="noopener noreferrer">CoinGecko</a> is one of the largest independent cryptocurrency data aggregators in the world, tracking 10,000+ coins across 900+ exchanges. Unlike exchange-owned data providers, CoinGecko has no incentive to favor particular assets — which is exactly why we use them. Their API powers our price ticker, market tables, coin detail pages, trending coins, and news feed. All data is clearly attributed.</p>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- Still have questions -->
+          <div style="margin-top:var(--space-10);text-align:center;padding:var(--space-8);background:var(--bg-surface);border:1px solid var(--border);border-radius:var(--radius-xl);">
+            <h3 style="margin-bottom:var(--space-3);">Still have a question?</h3>
+            <p style="margin-bottom:var(--space-6);">We're a real team and we reply to every message. Typically within 48 business hours.</p>
+            <a href="contact.html" class="btn btn-primary">Contact Us</a>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="navbar-brand" style="margin-bottom:var(--space-3);display:inline-flex;">
+            <span class="brand-icon">◈</span>
+            <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+          </a>
+          <p>Independent crypto market analysis, news aggregation, and educational consulting. Not financial advice.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter">𝕏</a>
+            <a href="#" aria-label="LinkedIn">in</a>
+            <a href="#" aria-label="GitHub">⌥</a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h5>Explore</h5>
+          <ul>
+            <li><a href="news.html">Crypto News</a></li>
+            <li><a href="coin-explorer.html">Coin Explorer</a></li>
+            <li><a href="reports.html">Market Reports</a></li>
+            <li><a href="consulting.html">Consulting</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Company</h5>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="faq.html">FAQ</a></li>
+            <li><a href="refund-policy.html">Refund Policy</a></li>
+            <li><a href="contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Contact</h5>
+          <ul>
+            <li class="contact-item">📧 <a href="mailto:hello@cryptolens.io">hello@cryptolens.io</a></li>
+            <li class="contact-item">🐦 <a href="#">@CryptoLensIO</a></li>
+            <li class="contact-item">📍 Remote — Global</li>
+          </ul>
+          <p style="margin-top:var(--space-4);font-size:var(--font-xs);color:var(--text-muted);">Response time: within 48 business hours</p>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2025 CryptoLens. All rights reserved. Not financial advice. Data provided by CoinGecko.</p>
+        <div class="footer-links">
+          <a href="refund-policy.html">Refund Policy</a>
+          <a href="faq.html">FAQ</a>
+          <a href="contact.html">Contact</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/ticker.js"></script>
+  <script src="js/contact.js"></script>
+</body>
+</html>

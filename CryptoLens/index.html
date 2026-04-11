@@ -1,0 +1,341 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <!-- Primary SEO -->
+  <title>CryptoLens — Crypto News, Market Analysis &amp; Insights</title>
+  <meta name="description" content="CryptoLens delivers real-time crypto news, independent market cycle reports, coin analytics, and expert consulting. Stay ahead of Bitcoin, Ethereum, and the broader crypto market with CoinGecko-powered data.">
+  <meta name="keywords" content="crypto news, cryptocurrency analysis, bitcoin price, ethereum, market reports, DeFi, altcoin season, crypto consulting, blockchain">
+  <meta name="author" content="CryptoLens">
+  <meta name="robots" content="index, follow">
+
+  <!-- Open Graph -->
+  <meta property="og:type"        content="website">
+  <meta property="og:url"         content="https://cryptolens.io/">
+  <meta property="og:title"       content="CryptoLens — Crypto News &amp; Market Analysis">
+  <meta property="og:description" content="Independent crypto news, market reports, and consulting. Powered by CoinGecko data.">
+  <meta property="og:site_name"   content="CryptoLens">
+
+  <!-- Twitter Card -->
+  <meta name="twitter:card"        content="summary_large_image">
+  <meta name="twitter:site"        content="@CryptoLensIO">
+  <meta name="twitter:title"       content="CryptoLens — Crypto News &amp; Market Analysis">
+  <meta name="twitter:description" content="Real-time crypto news, independent market reports, and expert consulting.">
+
+  <!-- JSON-LD Structured Data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebSite",
+    "name": "CryptoLens",
+    "url": "https://cryptolens.io",
+    "description": "Crypto news, market analysis reports, and consulting services.",
+    "potentialAction": {
+      "@type": "SearchAction",
+      "target": "https://cryptolens.io/coin-explorer.html?q={search_term_string}",
+      "query-input": "required name=search_term_string"
+    }
+  }
+  </script>
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Ticker -->
+  <div class="ticker-wrap">
+    <div class="ticker-track" id="tickerTrack">
+      <span class="ticker-loading">Loading live market data…</span>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container navbar-inner">
+      <a href="index.html" class="navbar-brand">
+        <span class="brand-icon">◈</span>
+        <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index.html">Home</a></li>
+        <li><a href="news.html">News</a></li>
+        <li><a href="coin-explorer.html">Coin Explorer</a></li>
+        <li><a href="reports.html">Reports</a></li>
+        <li><a href="consulting.html">Consulting</a></li>
+        <li><a href="about.html">About</a></li>
+        <li><a href="faq.html">FAQ</a></li>
+        <li><a href="contact.html" class="btn btn-primary btn-sm">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- ============================================================
+         HERO
+    ============================================================ -->
+    <section class="hero">
+      <div class="container">
+        <span class="badge badge-purple" style="margin-bottom:1.5rem;display:inline-block;">🟢 Live Market Data</span>
+        <h1>Your Lens Into the<br><span class="highlight">Crypto Market</span></h1>
+        <p class="subtitle">Real-time news, independent market analysis, and expert consulting — all in one place.</p>
+        <div class="hero-ctas">
+          <a href="news.html"    class="btn btn-primary btn-lg">Read Latest News</a>
+          <a href="reports.html" class="btn btn-outline btn-lg">View Reports</a>
+        </div>
+        <div class="hero-trust">
+          <span>Powered by CoinGecko</span>
+          <span class="hero-trust-dot"></span>
+          <span>Updated every page load</span>
+          <span class="hero-trust-dot"></span>
+          <span>No financial advice</span>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         MARKET SNAPSHOT — TOP 10
+    ============================================================ -->
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="eyebrow">Market Overview</span>
+          <h2>Top 10 by Market Cap</h2>
+          <p>Live data from CoinGecko — prices refresh on page load.</p>
+        </div>
+        <div class="data-table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Coin</th>
+                <th>Price</th>
+                <th>24h Change</th>
+                <th>Market Cap</th>
+              </tr>
+            </thead>
+            <tbody id="homeTableBody">
+              <tr><td colspan="5" class="table-loading">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div class="table-view-all">
+          <a href="coin-explorer.html" class="btn btn-outline btn-sm">View all 100+ coins →</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         TRENDING COINS
+    ============================================================ -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <span class="eyebrow">Trending</span>
+          <h2>What's Hot Right Now</h2>
+          <p>The coins with the most attention on CoinGecko in the last 24 hours.</p>
+        </div>
+        <div class="trending-scroll">
+          <div class="trending-strip" id="trendingStrip">
+            <!-- Populated by coins.js -->
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         LATEST NEWS
+    ============================================================ -->
+    <section class="section">
+      <div class="container">
+        <div class="section-header">
+          <span class="eyebrow">Latest News</span>
+          <h2>Breaking Crypto Headlines</h2>
+          <p>Aggregated from top crypto media via CoinGecko News — always fresh, always relevant.</p>
+        </div>
+        <div class="news-grid" id="homeNewsGrid">
+          <!-- Populated by news.js -->
+        </div>
+        <div style="text-align:center;margin-top:var(--space-8);">
+          <a href="news.html" class="btn btn-outline btn-lg">View all news →</a>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         PRODUCTS TEASER
+    ============================================================ -->
+    <section class="section section-alt">
+      <div class="container">
+        <div class="section-header">
+          <span class="eyebrow">Premium Reports</span>
+          <h2>In-Depth Market Intelligence</h2>
+          <p>Professionally researched PDF reports — go beyond the headlines with real analysis.</p>
+        </div>
+        <div class="grid-3">
+          <div class="card card-lift product-teaser-card">
+            <div class="ptc-icon">📊</div>
+            <span class="badge badge-cyan" style="margin-bottom:.75rem;">Macro Analysis</span>
+            <h4>Monthly Market Cycle Report</h4>
+            <p>BTC cycle phase, on-chain metrics, altcoin rotation signals, and 30-day macro outlook.</p>
+            <div class="flex-between" style="align-items:center;">
+              <span class="product-teaser-price">$9.99</span>
+              <a href="reports.html" class="btn btn-outline btn-sm">Learn more</a>
+            </div>
+          </div>
+          <div class="card card-lift card-accent-top product-teaser-card">
+            <div class="ptc-icon">🚀</div>
+            <span class="badge badge-gold" style="margin-bottom:.75rem;">⭐ Most Popular</span>
+            <h4>Altcoin Season Watchlist</h4>
+            <p>20 curated altcoin picks with entry zones, risk ratings, and sector breakdown.</p>
+            <div class="flex-between" style="align-items:center;">
+              <span class="product-teaser-price">$14.99</span>
+              <a href="reports.html" class="btn btn-primary btn-sm">Learn more</a>
+            </div>
+          </div>
+          <div class="card card-lift product-teaser-card">
+            <div class="ptc-icon">🏗️</div>
+            <span class="badge badge-purple" style="margin-bottom:.75rem;">Advanced</span>
+            <h4>DeFi Protocol Deep Dive Bundle</h4>
+            <p>In-depth analysis of 5 leading DeFi protocols — risks, yields, and market outlook.</p>
+            <div class="flex-between" style="align-items:center;">
+              <span class="product-teaser-price">$24.99</span>
+              <a href="reports.html" class="btn btn-outline btn-sm">Learn more</a>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         SERVICES TEASER
+    ============================================================ -->
+    <section class="section">
+      <div class="container">
+        <div class="services-teaser">
+          <div>
+            <span class="eyebrow" style="color:var(--accent);font-size:var(--font-xs);font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:block;margin-bottom:var(--space-3);">Consulting</span>
+            <h2>Work With a Crypto Analyst</h2>
+            <p>Skip the generic advice. Book a 1:1 session and get a personalized read on your portfolio and the market.</p>
+            <ul class="services-teaser-bullets">
+              <li>Portfolio audit &amp; rebalancing guidance</li>
+              <li>Entry/exit framework tailored to your risk tolerance</li>
+              <li>Macro market cycle positioning advice</li>
+              <li>Recorded session + written follow-up report</li>
+              <li>No conflicts of interest — no coin sponsorships</li>
+            </ul>
+            <a href="consulting.html" class="btn btn-primary">View Consulting Services</a>
+          </div>
+          <div class="services-cta-card">
+            <span class="badge badge-purple" style="margin-bottom:var(--space-4);">Book a Session</span>
+            <h3>1:1 Sessions</h3>
+            <p style="font-size:var(--font-sm);color:var(--text-secondary);margin-bottom:0;">Starting at</p>
+            <div class="price-row">
+              <span class="price">$49</span>
+            </div>
+            <p style="font-size:var(--font-xs);color:var(--text-muted);margin-bottom:var(--space-5);">60-minute Portfolio Review · Video call · Written summary included</p>
+            <a href="consulting.html" class="btn btn-primary btn-full">Book a Session</a>
+            <p style="margin-top:var(--space-3);font-size:var(--font-xs);color:var(--text-muted);">Full refund if cancelled 24h+ in advance</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ============================================================
+         TRUST BAR
+    ============================================================ -->
+    <div class="trust-bar">
+      <div class="container grid-4">
+        <div class="trust-stat">
+          <span class="number">5+</span>
+          <span class="label">Years Crypto Market Experience</span>
+        </div>
+        <div class="trust-stat">
+          <span class="number" style="color:var(--accent-cyan);">CoinGecko</span>
+          <span class="label">Verified Data Source</span>
+        </div>
+        <div class="trust-stat">
+          <span class="number">500+</span>
+          <span class="label">Report Downloads</span>
+        </div>
+        <div class="trust-stat">
+          <span class="number" style="color:var(--green);">48hr</span>
+          <span class="label">Consulting Response Time</span>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- ============================================================
+       FOOTER
+  ============================================================ -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index.html" class="navbar-brand" style="margin-bottom:var(--space-3);display:inline-flex;">
+            <span class="brand-icon">◈</span>
+            <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+          </a>
+          <p>Independent crypto market analysis, news aggregation, and educational consulting. Not financial advice.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter">𝕏</a>
+            <a href="#" aria-label="LinkedIn">in</a>
+            <a href="#" aria-label="GitHub">⌥</a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h5>Explore</h5>
+          <ul>
+            <li><a href="news.html">Crypto News</a></li>
+            <li><a href="coin-explorer.html">Coin Explorer</a></li>
+            <li><a href="reports.html">Market Reports</a></li>
+            <li><a href="consulting.html">Consulting</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Company</h5>
+          <ul>
+            <li><a href="about.html">About</a></li>
+            <li><a href="faq.html">FAQ</a></li>
+            <li><a href="refund-policy.html">Refund Policy</a></li>
+            <li><a href="contact.html">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Contact</h5>
+          <ul>
+            <li class="contact-item">📧 <a href="mailto:hello@cryptolens.io">hello@cryptolens.io</a></li>
+            <li class="contact-item">🐦 <a href="#">@CryptoLensIO</a></li>
+            <li class="contact-item">📍 Remote — Global</li>
+          </ul>
+          <p style="margin-top:var(--space-4);font-size:var(--font-xs);color:var(--text-muted);">Response time: within 48 business hours</p>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2025 CryptoLens. All rights reserved. Not financial advice. Data provided by CoinGecko.</p>
+        <div class="footer-links">
+          <a href="refund-policy.html">Refund Policy</a>
+          <a href="faq.html">FAQ</a>
+          <a href="contact.html">Contact</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/ticker.js"></script>
+  <script src="js/coins.js"></script>
+  <script src="js/news.js"></script>
+  <script src="js/contact.js"></script>
+</body>
+</html>
