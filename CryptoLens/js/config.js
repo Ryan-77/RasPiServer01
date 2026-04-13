@@ -1,22 +1,22 @@
 /* ============================================================
    CryptoLens — Site Configuration
-   Replace CG_DEMO_KEY with your free key from coingecko.com/api
+   CoinGecko calls are proxied through cg-proxy.php to keep
+   the API key off the client.
    ============================================================ */
 
-const CG_KEY  = 'CG-aQzxrfUMSk8gSSKBgmpA3Uht';  // ← Paste your free CoinGecko Demo API key here
-const CG_BASE = 'https://api.coingecko.com/api/v3';
+const CG_PROXY = '/cryptolens/cg-proxy.php';
 
-// Helper: append API key to every request URL
+// Helper: build proxy URL (no API key in the browser)
 function cgUrl(endpoint, params = {}) {
-  const url = new URL(CG_BASE + endpoint);
-  url.searchParams.set('x_cg_demo_api_key', CG_KEY);
+  const url = new URL(CG_PROXY, window.location.origin);
+  url.searchParams.set('endpoint', endpoint);
   for (const [k, v] of Object.entries(params)) {
     url.searchParams.set(k, v);
   }
   return url.toString();
 }
 
-// Helper: fetch CoinGecko with error handling
+// Helper: fetch CoinGecko via server-side proxy
 async function fetchCG(endpoint, params = {}) {
   try {
     const res = await fetch(cgUrl(endpoint, params));
