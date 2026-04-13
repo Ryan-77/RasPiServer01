@@ -4,3 +4,15 @@ venv/
 .DS_Store
 crypto/log.txt
 flight-analysis/monitor.log
+
+# Claude context files
+CLAUDE.md
+
+# Webdev class files (served on site but not tracked in repo)
+about.html
+calc.html
+contact.html
+js1.html
+loancalc.html
+ski.html
+images/temp.html
