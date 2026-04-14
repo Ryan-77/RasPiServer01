@@ -1,0 +1,639 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Tools | CryptoLens</title>
+  <meta name="description" content="Free financial tools from CryptoLens — loan calculators and more.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="icon" type="image/svg+xml" href="favicon.svg">
+  <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+  <!-- Ticker -->
+  <div class="ticker-wrap">
+    <div class="ticker-track" id="tickerTrack">
+      <span class="ticker-loading">Loading live market data…</span>
+    </div>
+  </div>
+
+  <!-- Navigation -->
+  <nav class="navbar">
+    <div class="container navbar-inner">
+      <a href="index" class="navbar-brand">
+        <span class="brand-icon">◈</span>
+        <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+      </a>
+      <button class="nav-toggle" id="navToggle" aria-label="Toggle navigation">
+        <span></span><span></span><span></span>
+      </button>
+      <ul class="nav-links" id="navLinks">
+        <li><a href="index">Home</a></li>
+        <li><a href="news">News</a></li>
+        <li><a href="coin-explorer">Coin Explorer</a></li>
+        <li><a href="reports">Reports</a></li>
+        <li><a href="consulting">Consulting</a></li>
+        <li><a href="tools" class="active">Tools</a></li>
+        <li><a href="about">About</a></li>
+        <li><a href="faq">FAQ</a></li>
+        <li><a href="contact" class="btn btn-primary btn-sm">Contact</a></li>
+      </ul>
+    </div>
+  </nav>
+
+  <main>
+
+    <!-- Page Header -->
+    <div class="page-hero">
+      <div class="container">
+        <h1>Tools</h1>
+        <p>Free calculators and utilities to help with financial decisions.</p>
+      </div>
+    </div>
+
+    <!-- Tools Section -->
+    <section class="section">
+      <div class="container" style="max-width:860px;">
+
+        <!-- Loan Calculator Card -->
+        <div class="card" style="padding: var(--space-8);">
+          <div style="margin-bottom: var(--space-6);">
+            <span class="eyebrow" style="color:var(--accent);font-size:var(--font-xs);font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:block;margin-bottom:var(--space-2);">Calculator</span>
+            <h3 style="margin-bottom: var(--space-2);">Loan Payment Calculator</h3>
+            <p>Enter your loan details below to calculate your estimated monthly payment.</p>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--space-6);">
+
+            <!-- Inputs -->
+            <div style="display:flex; flex-direction:column; gap: var(--space-5);">
+              <div class="form-group">
+                <label class="form-label" for="pv">Loan Amount</label>
+                <div style="position:relative;">
+                  <span style="position:absolute;left:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-weight:500;">$</span>
+                  <input
+                    class="form-input"
+                    type="number"
+                    id="pv"
+                    placeholder="250,000"
+                    min="0"
+                    step="1000"
+                    style="padding-left: var(--space-6);"
+                    oninput="calculatePayment()"
+                  >
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="n">Loan Term</label>
+                <div style="position:relative;">
+                  <input
+                    class="form-input"
+                    type="number"
+                    id="n"
+                    placeholder="30"
+                    min="1"
+                    max="50"
+                    oninput="calculatePayment()"
+                  >
+                  <span style="position:absolute;right:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:var(--font-sm);">years</span>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="r">Annual Interest Rate</label>
+                <div style="position:relative;">
+                  <input
+                    class="form-input"
+                    type="number"
+                    id="r"
+                    placeholder="6.5"
+                    min="0"
+                    step="0.1"
+                    oninput="calculatePayment()"
+                  >
+                  <span style="position:absolute;right:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:var(--font-sm);">%</span>
+                </div>
+              </div>
+
+              <button class="btn btn-primary" onclick="calculatePayment()" style="width:100%;margin-top:auto;">
+                Calculate
+              </button>
+            </div>
+
+            <!-- Results -->
+            <div style="display:flex; flex-direction:column; gap: var(--space-4);">
+              <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-6); flex:1; display:flex; flex-direction:column; justify-content:center;">
+                <div style="font-size:var(--font-xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--space-2);">Monthly Payment</div>
+                <div id="monthly-result" style="font-size:var(--font-4xl);font-weight:700;color:var(--accent);">—</div>
+              </div>
+
+              <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-4);">
+                <div style="display:flex;justify-content:space-between;margin-bottom:var(--space-3);">
+                  <span style="font-size:var(--font-sm);color:var(--text-secondary);">Total Paid</span>
+                  <span id="total-result" style="font-size:var(--font-sm);font-weight:600;color:var(--text-primary);">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;">
+                  <span style="font-size:var(--font-sm);color:var(--text-secondary);">Total Interest</span>
+                  <span id="interest-result" style="font-size:var(--font-sm);font-weight:600;color:var(--red);">—</span>
+                </div>
+              </div>
+
+              <div id="calc-error" style="display:none;background:var(--red-light);border:1px solid var(--red);border-radius:var(--radius);padding:var(--space-3);font-size:var(--font-sm);color:var(--red);"></div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ── TOOL 2: Trade Risk & Position Size Calculator ── -->
+        <div class="card" style="padding: var(--space-8); margin-top: var(--space-8);">
+          <div style="margin-bottom: var(--space-6);">
+            <span class="eyebrow" style="color:var(--accent-cyan);font-size:var(--font-xs);font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:block;margin-bottom:var(--space-2);">Risk Management</span>
+            <h3 style="margin-bottom: var(--space-2);">Trade Position Size Calculator</h3>
+            <p>Enter your account size and trade setup to find the exact position size that keeps your risk controlled.</p>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--space-6);">
+
+            <!-- Inputs -->
+            <div style="display:flex; flex-direction:column; gap: var(--space-4);">
+              <div class="form-group">
+                <label class="form-label" for="ps-balance">Account Balance</label>
+                <div style="position:relative;">
+                  <span style="position:absolute;left:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-weight:500;">$</span>
+                  <input class="form-input" type="number" id="ps-balance" placeholder="10,000" min="0" style="padding-left:var(--space-6);" oninput="calcPosition()">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="ps-risk">
+                  Risk Per Trade
+                  <span style="font-weight:400;color:var(--text-muted);font-size:var(--font-xs);margin-left:var(--space-2);">(1–2% is standard)</span>
+                </label>
+                <div style="position:relative;">
+                  <input class="form-input" type="number" id="ps-risk" placeholder="1" min="0.1" max="100" step="0.1" oninput="calcPosition()">
+                  <span style="position:absolute;right:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:var(--font-sm);">%</span>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="ps-entry">Entry Price</label>
+                <div style="position:relative;">
+                  <span style="position:absolute;left:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-weight:500;">$</span>
+                  <input class="form-input" type="number" id="ps-entry" placeholder="65,000" min="0" style="padding-left:var(--space-6);" oninput="calcPosition()">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="ps-stop">Stop Loss Price</label>
+                <div style="position:relative;">
+                  <span style="position:absolute;left:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-weight:500;">$</span>
+                  <input class="form-input" type="number" id="ps-stop" placeholder="62,000" min="0" style="padding-left:var(--space-6);" oninput="calcPosition()">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="ps-tp">
+                  Take Profit Price
+                  <span style="font-weight:400;color:var(--text-muted);font-size:var(--font-xs);margin-left:var(--space-2);">(optional)</span>
+                </label>
+                <div style="position:relative;">
+                  <span style="position:absolute;left:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-weight:500;">$</span>
+                  <input class="form-input" type="number" id="ps-tp" placeholder="72,000" min="0" style="padding-left:var(--space-6);" oninput="calcPosition()">
+                </div>
+              </div>
+            </div>
+
+            <!-- Results -->
+            <div style="display:flex; flex-direction:column; gap: var(--space-3);">
+
+              <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-5); flex:1;">
+                <div style="font-size:var(--font-xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--space-1);">Position Size</div>
+                <div id="ps-size-usd" style="font-size:var(--font-3xl);font-weight:700;color:var(--accent-cyan);">—</div>
+                <div id="ps-size-coins" style="font-size:var(--font-sm);color:var(--text-secondary);margin-top:var(--space-1);">— coins</div>
+              </div>
+
+              <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-4);">
+                <div style="display:flex;justify-content:space-between;margin-bottom:var(--space-3);">
+                  <span style="font-size:var(--font-sm);color:var(--text-secondary);">Max Dollar Risk</span>
+                  <span id="ps-dollar-risk" style="font-size:var(--font-sm);font-weight:600;color:var(--red);">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:var(--space-3);">
+                  <span style="font-size:var(--font-sm);color:var(--text-secondary);">Stop Loss Distance</span>
+                  <span id="ps-stop-pct" style="font-size:var(--font-sm);font-weight:600;color:var(--text-primary);">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:var(--space-3);" id="ps-rr-row">
+                  <span style="font-size:var(--font-sm);color:var(--text-secondary);">Risk / Reward</span>
+                  <span id="ps-rr" style="font-size:var(--font-sm);font-weight:700;">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;" id="ps-profit-row">
+                  <span style="font-size:var(--font-sm);color:var(--text-secondary);">Potential Profit</span>
+                  <span id="ps-profit" style="font-size:var(--font-sm);font-weight:600;color:var(--green);">—</span>
+                </div>
+              </div>
+
+              <!-- R:R quality badge -->
+              <div id="ps-verdict" style="display:none; border-radius:var(--radius); padding:var(--space-3); font-size:var(--font-sm); font-weight:600; text-align:center;"></div>
+
+              <div id="ps-error" style="display:none;background:var(--red-light);border:1px solid var(--red);border-radius:var(--radius);padding:var(--space-3);font-size:var(--font-sm);color:var(--red);"></div>
+            </div>
+
+          </div>
+        </div>
+
+        <!-- ── TOOL 3: DCA Growth Simulator ── -->
+        <div class="card" style="padding: var(--space-8); margin-top: var(--space-8);">
+          <div style="margin-bottom: var(--space-6);">
+            <span class="eyebrow" style="color:var(--green);font-size:var(--font-xs);font-weight:700;letter-spacing:.1em;text-transform:uppercase;display:block;margin-bottom:var(--space-2);">Strategy</span>
+            <h3 style="margin-bottom: var(--space-2);">DCA Growth Simulator</h3>
+            <p>See how dollar-cost averaging compounds over time. Adjust the return rate to model different market conditions.</p>
+          </div>
+
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap: var(--space-6); margin-bottom: var(--space-6);">
+            <!-- Inputs -->
+            <div style="display:flex; flex-direction:column; gap: var(--space-4);">
+              <div class="form-group">
+                <label class="form-label" for="dca-lump">Initial Investment <span style="font-weight:400;color:var(--text-muted);font-size:var(--font-xs);">(optional)</span></label>
+                <div style="position:relative;">
+                  <span style="position:absolute;left:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-weight:500;">$</span>
+                  <input class="form-input" type="number" id="dca-lump" placeholder="0" min="0" style="padding-left:var(--space-6);" oninput="calcDCA()">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="dca-monthly">Monthly Contribution</label>
+                <div style="position:relative;">
+                  <span style="position:absolute;left:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-weight:500;">$</span>
+                  <input class="form-input" type="number" id="dca-monthly" placeholder="200" min="0" style="padding-left:var(--space-6);" oninput="calcDCA()">
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="dca-rate">Expected Annual Return</label>
+                <div style="position:relative;">
+                  <input class="form-input" type="number" id="dca-rate" placeholder="40" min="-100" max="10000" step="1" oninput="calcDCA()">
+                  <span style="position:absolute;right:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:var(--font-sm);">%</span>
+                </div>
+                <div style="display:flex;gap:var(--space-2);margin-top:var(--space-2);flex-wrap:wrap;">
+                  <button onclick="setRate(10)"  style="font-size:var(--font-xs);padding:2px 8px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-full);color:var(--text-secondary);cursor:pointer;">Conservative 10%</button>
+                  <button onclick="setRate(40)"  style="font-size:var(--font-xs);padding:2px 8px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-full);color:var(--text-secondary);cursor:pointer;">Crypto Avg 40%</button>
+                  <button onclick="setRate(100)" style="font-size:var(--font-xs);padding:2px 8px;background:var(--bg-elevated);border:1px solid var(--border);border-radius:var(--radius-full);color:var(--text-secondary);cursor:pointer;">Bull Run 100%</button>
+                </div>
+              </div>
+
+              <div class="form-group">
+                <label class="form-label" for="dca-years">Time Horizon</label>
+                <div style="position:relative;">
+                  <input class="form-input" type="number" id="dca-years" placeholder="5" min="1" max="30" oninput="calcDCA()">
+                  <span style="position:absolute;right:var(--space-3);top:50%;transform:translateY(-50%);color:var(--text-secondary);font-size:var(--font-sm);">years</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Summary Results -->
+            <div style="display:flex; flex-direction:column; gap: var(--space-3);">
+              <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-5); flex:1; display:flex;flex-direction:column;justify-content:center;">
+                <div style="font-size:var(--font-xs);font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--text-muted);margin-bottom:var(--space-1);">Final Portfolio Value</div>
+                <div id="dca-final" style="font-size:var(--font-3xl);font-weight:700;color:var(--green);">—</div>
+              </div>
+
+              <div style="background:var(--bg-elevated); border:1px solid var(--border); border-radius:var(--radius-lg); padding:var(--space-4);">
+                <div style="display:flex;justify-content:space-between;margin-bottom:var(--space-3);">
+                  <span style="font-size:var(--font-sm);color:var(--text-secondary);">Total Invested</span>
+                  <span id="dca-invested" style="font-size:var(--font-sm);font-weight:600;color:var(--text-primary);">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;margin-bottom:var(--space-3);">
+                  <span style="font-size:var(--font-sm);color:var(--text-secondary);">Total Gains</span>
+                  <span id="dca-gains" style="font-size:var(--font-sm);font-weight:600;color:var(--green);">—</span>
+                </div>
+                <div style="display:flex;justify-content:space-between;">
+                  <span style="font-size:var(--font-sm);color:var(--text-secondary);">Return on Investment</span>
+                  <span id="dca-roi" style="font-size:var(--font-sm);font-weight:700;color:var(--green);">—</span>
+                </div>
+              </div>
+
+              <div id="dca-error" style="display:none;background:var(--red-light);border:1px solid var(--red);border-radius:var(--radius);padding:var(--space-3);font-size:var(--font-sm);color:var(--red);"></div>
+            </div>
+          </div>
+
+          <!-- Year-by-year chart -->
+          <div id="dca-chart-wrap" style="display:none;">
+            <div style="font-size:var(--font-sm);font-weight:600;color:var(--text-secondary);margin-bottom:var(--space-4);text-transform:uppercase;letter-spacing:.06em;">Year-by-Year Breakdown</div>
+            <div style="overflow-x:auto;">
+              <table style="width:100%;border-collapse:collapse;font-size:var(--font-sm);">
+                <thead>
+                  <tr style="border-bottom:1px solid var(--border);">
+                    <th style="text-align:left;padding:var(--space-2) var(--space-3);color:var(--text-muted);font-weight:600;">Year</th>
+                    <th style="text-align:right;padding:var(--space-2) var(--space-3);color:var(--text-muted);font-weight:600;">Invested</th>
+                    <th style="text-align:right;padding:var(--space-2) var(--space-3);color:var(--text-muted);font-weight:600;">Value</th>
+                    <th style="text-align:right;padding:var(--space-2) var(--space-3);color:var(--text-muted);font-weight:600;">Gains</th>
+                    <th style="padding:var(--space-2) var(--space-3);color:var(--text-muted);font-weight:600;min-width:120px;"></th>
+                  </tr>
+                </thead>
+                <tbody id="dca-table-body"></tbody>
+              </table>
+            </div>
+          </div>
+
+        </div>
+
+      </div>
+    </section>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="footer">
+    <div class="container">
+      <div class="footer-grid">
+        <div class="footer-brand">
+          <a href="index" class="navbar-brand" style="margin-bottom:var(--space-3);display:inline-flex;">
+            <span class="brand-icon">◈</span>
+            <span class="brand-name">Crypto<span class="brand-accent">Lens</span></span>
+          </a>
+          <p>Independent crypto market analysis, news aggregation, and educational consulting. Not financial advice.</p>
+          <div class="footer-social">
+            <a href="#" aria-label="Twitter">𝕏</a>
+            <a href="#" aria-label="LinkedIn">in</a>
+            <a href="#" aria-label="GitHub">⌥</a>
+          </div>
+        </div>
+        <div class="footer-col">
+          <h5>Explore</h5>
+          <ul>
+            <li><a href="news">Crypto News</a></li>
+            <li><a href="coin-explorer">Coin Explorer</a></li>
+            <li><a href="reports">Market Reports</a></li>
+            <li><a href="consulting">Consulting</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Company</h5>
+          <ul>
+            <li><a href="about">About</a></li>
+            <li><a href="faq">FAQ</a></li>
+            <li><a href="refund-policy">Refund Policy</a></li>
+            <li><a href="contact">Contact</a></li>
+          </ul>
+        </div>
+        <div class="footer-col">
+          <h5>Contact</h5>
+          <ul>
+            <li class="contact-item">📧 <a href="mailto:hello@cryptolens.io">hello@cryptolens.io</a></li>
+            <li class="contact-item">🐦 <a href="#">@CryptoLensIO</a></li>
+            <li class="contact-item">📍 Remote — Global</li>
+          </ul>
+          <p style="margin-top:var(--space-4);font-size:var(--font-xs);color:var(--text-muted);">Response time: within 48 business hours</p>
+        </div>
+      </div>
+      <div class="footer-bottom">
+        <p>© 2025 CryptoLens. All rights reserved. Not financial advice. Data provided by CoinGecko.</p>
+        <div class="footer-links">
+          <a href="refund-policy">Refund Policy</a>
+          <a href="faq">FAQ</a>
+          <a href="contact">Contact</a>
+        </div>
+      </div>
+    </div>
+  </footer>
+
+  <script src="js/config.js"></script>
+  <script src="js/ticker.js"></script>
+  <script src="js/contact.js"></script>
+
+  <script>
+    // ── Shared formatter ────────────────────────────────────────
+    const fmt  = (v, dec=2) => '$' + v.toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec });
+    const fmtC = (v, dec=6) => v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: dec });
+
+    // ── Tool 1: Loan Calculator ─────────────────────────────────
+    function calculatePayment() {
+      const PV = parseFloat(document.getElementById('pv').value);
+      const n  = parseFloat(document.getElementById('n').value);
+      const r  = parseFloat(document.getElementById('r').value);
+
+      const errEl      = document.getElementById('calc-error');
+      const monthlyEl  = document.getElementById('monthly-result');
+      const totalEl    = document.getElementById('total-result');
+      const interestEl = document.getElementById('interest-result');
+
+      // Clear error
+      errEl.style.display = 'none';
+
+      // Need all three fields filled before calculating
+      if (isNaN(PV) || isNaN(n) || isNaN(r)) {
+        monthlyEl.textContent  = '—';
+        totalEl.textContent    = '—';
+        interestEl.textContent = '—';
+        return;
+      }
+
+      if (PV <= 0 || n <= 0 || r < 0) {
+        errEl.textContent    = 'Please enter valid values. Loan amount and term must be greater than zero.';
+        errEl.style.display  = 'block';
+        monthlyEl.textContent  = '—';
+        totalEl.textContent    = '—';
+        interestEl.textContent = '—';
+        return;
+      }
+
+      let monthly;
+      if (r === 0) {
+        // Zero-interest loan
+        monthly = PV / (n * 12);
+      } else {
+        const monthlyRate = r / 100 / 12;
+        const numPayments = n * 12;
+        monthly = (monthlyRate * PV) / (1 - Math.pow(1 + monthlyRate, -numPayments));
+      }
+
+      const totalPaid    = monthly * n * 12;
+      const totalInterest = totalPaid - PV;
+
+      const fmt = (val) => '$' + val.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+      monthlyEl.textContent  = fmt(monthly);
+      totalEl.textContent    = fmt(totalPaid);
+      interestEl.textContent = fmt(totalInterest);
+    }
+
+    // ── Tool 2: Position Size Calculator ───────────────────────
+    function calcPosition() {
+      const balance = parseFloat(document.getElementById('ps-balance').value);
+      const riskPct = parseFloat(document.getElementById('ps-risk').value);
+      const entry   = parseFloat(document.getElementById('ps-entry').value);
+      const stop    = parseFloat(document.getElementById('ps-stop').value);
+      const tp      = parseFloat(document.getElementById('ps-tp').value);
+
+      const errEl     = document.getElementById('ps-error');
+      const sizeUsd   = document.getElementById('ps-size-usd');
+      const sizeCoins = document.getElementById('ps-size-coins');
+      const dollarRisk= document.getElementById('ps-dollar-risk');
+      const stopPct   = document.getElementById('ps-stop-pct');
+      const rrEl      = document.getElementById('ps-rr');
+      const profitEl  = document.getElementById('ps-profit');
+      const verdictEl = document.getElementById('ps-verdict');
+
+      errEl.style.display     = 'none';
+      verdictEl.style.display = 'none';
+
+      if (isNaN(balance) || isNaN(riskPct) || isNaN(entry) || isNaN(stop)) {
+        [sizeUsd, sizeCoins, dollarRisk, stopPct, rrEl, profitEl].forEach(el => el.textContent = '—');
+        return;
+      }
+
+      if (entry <= 0 || stop <= 0 || balance <= 0 || riskPct <= 0) {
+        errEl.textContent    = 'All values must be greater than zero.';
+        errEl.style.display  = 'block';
+        return;
+      }
+
+      if (stop >= entry) {
+        errEl.textContent   = 'Stop loss must be below entry price (long trades only).';
+        errEl.style.display = 'block';
+        [sizeUsd, sizeCoins, dollarRisk, stopPct, rrEl, profitEl].forEach(el => el.textContent = '—');
+        return;
+      }
+
+      const maxRisk       = balance * (riskPct / 100);
+      const stopDist      = entry - stop;
+      const stopDistPct   = (stopDist / entry) * 100;
+      const positionUsd   = maxRisk / (stopDist / entry);
+      const positionCoins = positionUsd / entry;
+
+      sizeUsd.textContent   = fmt(positionUsd);
+      sizeCoins.textContent = fmtC(positionCoins) + ' coins';
+      dollarRisk.textContent = fmt(maxRisk);
+      stopPct.textContent    = stopDistPct.toFixed(2) + '% below entry';
+
+      if (!isNaN(tp) && tp > entry) {
+        const reward   = tp - entry;
+        const rr       = reward / stopDist;
+        const profit   = positionCoins * reward;
+        rrEl.textContent     = '1 : ' + rr.toFixed(2);
+        profitEl.textContent = fmt(profit);
+
+        // Colour R:R ratio and show verdict
+        if (rr >= 2) {
+          rrEl.style.color          = 'var(--green)';
+          verdictEl.style.background= 'var(--green-light)';
+          verdictEl.style.border    = '1px solid var(--green)';
+          verdictEl.style.color     = 'var(--green)';
+          verdictEl.textContent     = '✓ Strong setup — R:R of ' + rr.toFixed(2) + ':1 is worth taking.';
+        } else if (rr >= 1) {
+          rrEl.style.color          = 'var(--gold)';
+          verdictEl.style.background= 'var(--gold-light)';
+          verdictEl.style.border    = '1px solid var(--gold)';
+          verdictEl.style.color     = 'var(--gold)';
+          verdictEl.textContent     = '⚠ Marginal setup — consider waiting for a better entry or tighter stop.';
+        } else {
+          rrEl.style.color          = 'var(--red)';
+          verdictEl.style.background= 'var(--red-light)';
+          verdictEl.style.border    = '1px solid var(--red)';
+          verdictEl.style.color     = 'var(--red)';
+          verdictEl.textContent     = '✗ Poor R:R — you risk more than you stand to gain. Skip this trade.';
+        }
+        verdictEl.style.display = 'block';
+      } else {
+        rrEl.textContent     = '—';
+        profitEl.textContent = '—';
+      }
+    }
+
+    // ── Tool 3: DCA Simulator ───────────────────────────────────
+    function setRate(r) {
+      document.getElementById('dca-rate').value = r;
+      calcDCA();
+    }
+
+    function calcDCA() {
+      const lump    = parseFloat(document.getElementById('dca-lump').value)    || 0;
+      const monthly = parseFloat(document.getElementById('dca-monthly').value) || 0;
+      const rate    = parseFloat(document.getElementById('dca-rate').value);
+      const years   = parseInt(document.getElementById('dca-years').value);
+
+      const errEl     = document.getElementById('dca-error');
+      const finalEl   = document.getElementById('dca-final');
+      const investEl  = document.getElementById('dca-invested');
+      const gainsEl   = document.getElementById('dca-gains');
+      const roiEl     = document.getElementById('dca-roi');
+      const chartWrap = document.getElementById('dca-chart-wrap');
+      const tbody     = document.getElementById('dca-table-body');
+
+      errEl.style.display     = 'none';
+      chartWrap.style.display = 'none';
+
+      if (isNaN(rate) || isNaN(years)) {
+        [finalEl, investEl, gainsEl, roiEl].forEach(el => el.textContent = '—');
+        return;
+      }
+      if (years < 1 || years > 30) {
+        errEl.textContent   = 'Time horizon must be between 1 and 30 years.';
+        errEl.style.display = 'block';
+        return;
+      }
+      if (lump === 0 && monthly === 0) {
+        [finalEl, investEl, gainsEl, roiEl].forEach(el => el.textContent = '—');
+        return;
+      }
+
+      const monthlyRate = rate / 100 / 12;
+
+      // Build year-by-year data
+      let portfolio    = lump;
+      let totalInvested= lump;
+      const rows       = [];
+
+      for (let y = 1; y <= years; y++) {
+        for (let m = 1; m <= 12; m++) {
+          portfolio = portfolio * (1 + monthlyRate) + monthly;
+          totalInvested += monthly;
+        }
+        rows.push({
+          year:      y,
+          invested:  totalInvested,
+          value:     portfolio,
+          gains:     portfolio - totalInvested,
+        });
+      }
+
+      const final      = portfolio;
+      const totalGains = final - totalInvested;
+      const roi        = totalInvested > 0 ? (totalGains / totalInvested) * 100 : 0;
+
+      finalEl.textContent  = fmt(final);
+      investEl.textContent = fmt(totalInvested);
+      gainsEl.textContent  = fmt(totalGains);
+      roiEl.textContent    = (roi >= 0 ? '+' : '') + roi.toLocaleString('en-US', {maximumFractionDigits: 0}) + '%';
+      roiEl.style.color    = roi >= 0 ? 'var(--green)' : 'var(--red)';
+      gainsEl.style.color  = totalGains >= 0 ? 'var(--green)' : 'var(--red)';
+
+      // Render table with bar chart
+      const maxVal = rows[rows.length - 1].value;
+      tbody.innerHTML = rows.map(r => {
+        const barPct     = Math.max(0, (r.value / maxVal) * 100);
+        const gainsPct   = (r.gains / r.value) * 100;
+        const invPct     = 100 - gainsPct;
+        return `<tr style="border-bottom:1px solid var(--border);">
+          <td style="padding:var(--space-2) var(--space-3);color:var(--text-secondary);font-weight:600;">Year ${r.year}</td>
+          <td style="padding:var(--space-2) var(--space-3);text-align:right;color:var(--text-secondary);">${fmt(r.invested)}</td>
+          <td style="padding:var(--space-2) var(--space-3);text-align:right;font-weight:600;color:var(--text-primary);">${fmt(r.value)}</td>
+          <td style="padding:var(--space-2) var(--space-3);text-align:right;color:${r.gains >= 0 ? 'var(--green)' : 'var(--red)'};">${r.gains >= 0 ? '+' : ''}${fmt(r.gains)}</td>
+          <td style="padding:var(--space-2) var(--space-3);">
+            <div style="height:8px;border-radius:var(--radius-full);overflow:hidden;background:var(--bg-base);width:${barPct}%;min-width:4px;display:flex;">
+              <div style="width:${invPct}%;background:var(--accent);opacity:0.5;"></div>
+              <div style="width:${gainsPct}%;background:var(--green);"></div>
+            </div>
+          </td>
+        </tr>`;
+      }).join('');
+
+      chartWrap.style.display = 'block';
+    }
+  </script>
+
+</body>
+</html>
